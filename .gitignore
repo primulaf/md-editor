@@ -1,0 +1,30 @@
+# 临时文件
+*.tmp
+*.bak
+*.swp
+*~
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 编辑器配置
+.vscode/
+.idea/
+
+# 本地开发服务器日志
+*.log
+
+# 本地存储文件（浏览器生成）
+localStorage/
+sessionStorage/
+
+# 构建输出（如果未来添加构建步骤）
+dist/
+build/
+node_modules/
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
