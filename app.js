@@ -23,6 +23,7 @@ const filenameCancelBtn = document.getElementById("filenameCancelBtn");
 const filenameConfirmBtn = document.getElementById("filenameConfirmBtn");
 const filenameDialogTitle = document.getElementById("filenameDialogTitle");
 
+const IS_MAC = navigator.platform.toUpperCase().includes('MAC');
 const STORAGE_KEY = "md-editor-content";
 const STORAGE_FILE_NAME_KEY = "md-editor-file-name";
 const STORAGE_THEME_KEY = "md-editor-theme";
@@ -51,6 +52,13 @@ let isResizing = false;
 let syncingFrom = null;
 let lastHighlightError = false;
 let isTocScrolling = false;
+let lastRenderedSource = null;
+let pendingRender = false;
+let lastHeadingHash = '';
+let isPageVisible = true;
+let dirtyWhileHidden = false;
+let cachedHeadings = [];
+let resizePending = false;
 
 // 文件名对话框状态
 let pendingFilenameCallback = null;
@@ -265,32 +273,67 @@ if (window.markdownitAnchor) {
 /**
  * 渲染 Markdown
  */
-function renderMarkdown() {
-  lastHighlightError = false;
+function renderMarkdown(force) {
   const source = editor.value || "";
-  const rawHtml = md.render(source);
 
-  const safeHtml = DOMPurify.sanitize(rawHtml, {
-    USE_PROFILES: { html: true },
-    ADD_ATTR: ["target", "rel", "class", "id", "aria-hidden", "aria-label"]
-  });
+  // 内容未变化则跳过（force=true 强制渲染）
+  if (!force && source === lastRenderedSource) return;
 
-  preview.innerHTML = safeHtml;
+  // 页面不在前台时标记脏数据，等恢复后再渲染
+  if (!isPageVisible && !force) {
+    dirtyWhileHidden = true;
+    return;
+  }
 
-  // 所有外链新窗口打开
-  preview.querySelectorAll("a[href]").forEach((a) => {
-    const href = a.getAttribute("href") || "";
-    if (href.startsWith("http://") || href.startsWith("https://")) {
-      a.setAttribute("target", "_blank");
-      a.setAttribute("rel", "noopener noreferrer");
+  // 使用 RAF 批处理，避免同一帧内多次渲染
+  if (pendingRender && !force) return;
+  pendingRender = true;
+
+  requestAnimationFrame(() => {
+    pendingRender = false;
+
+    // RAF 回调中再次检查内容是否已变化
+    const currentSource = editor.value || "";
+    if (!force && currentSource === lastRenderedSource) return;
+    lastRenderedSource = currentSource;
+
+    lastHighlightError = false;
+    const rawHtml = md.render(currentSource);
+
+    const safeHtml = DOMPurify.sanitize(rawHtml, {
+      USE_PROFILES: { html: true },
+      ADD_ATTR: ["target", "rel", "class", "id", "aria-hidden", "aria-label"]
+    });
+
+    preview.innerHTML = safeHtml;
+    refreshHeadings();
+
+    // 所有外链新窗口打开
+    preview.querySelectorAll("a[href]").forEach((a) => {
+      const href = a.getAttribute("href") || "";
+      if (href.startsWith("http://") || href.startsWith("https://")) {
+        a.setAttribute("target", "_blank");
+        a.setAttribute("rel", "noopener noreferrer");
+      }
+    });
+
+    // 仅当标题结构变化时才重建目录
+    const headingHash = computeHeadingHash();
+    if (headingHash !== lastHeadingHash) {
+      lastHeadingHash = headingHash;
+      buildToc();
     }
-  });
 
-  buildToc();
-  updateStats();
-  persist();
-  updateActiveTocOnScroll();
-  setStatus(lastHighlightError ? "已渲染（部分代码高亮暂不可用）" : "已渲染");
+    updateActiveTocOnScroll();
+    setStatus(lastHighlightError ? "已渲染（部分代码高亮暂不可用）" : "已渲染");
+  });
+}
+
+/** 计算标题结构的快速哈希，用于判断 TOC 是否需要重建 */
+function computeHeadingHash() {
+  const source = editor.value || "";
+  const matches = source.match(/^#{1,6}\s+/gm);
+  return matches ? matches.join('|') : '';
 }
 
 /**
@@ -358,18 +401,20 @@ function highlightActiveToc(activeId) {
 /**
  * 根据预览区滚动位置更新当前目录高亮
  */
+function refreshHeadings() {
+  cachedHeadings = preview.querySelectorAll("h1, h2, h3, h4, h5, h6");
+}
+
 function updateActiveTocOnScroll() {
-  if (isTocScrolling) return;
-  const headings = Array.from(preview.querySelectorAll("h1, h2, h3, h4, h5, h6"));
-  if (!headings.length) return;
+  if (isTocScrolling || !cachedHeadings.length) return;
 
   const previewRect = preview.getBoundingClientRect();
-  let current = headings[0];
+  let current = cachedHeadings[0];
 
-  for (const heading of headings) {
-    const rect = heading.getBoundingClientRect();
+  for (let i = 0; i < cachedHeadings.length; i++) {
+    const rect = cachedHeadings[i].getBoundingClientRect();
     if (rect.top - previewRect.top <= 40) {
-      current = heading;
+      current = cachedHeadings[i];
     } else {
       break;
     }
@@ -530,15 +575,20 @@ function initResizeHandle() {
 
   document.addEventListener('mousemove', (e) => {
     if (!isResizing) return;
-    const appRect = app.getBoundingClientRect();
-    const sidebarW = layout.sidebarVisible ? 280 : 0;
-    const handleW = 4;
-    const available = appRect.width - sidebarW - handleW;
-    if (available <= 0) return;
-    let ratio = (e.clientX - appRect.left - sidebarW) / available;
-    ratio = Math.max(0.2, Math.min(0.8, ratio));
-    layout.splitRatio = ratio;
-    updateLayout();
+    if (resizePending) return;
+    resizePending = true;
+    requestAnimationFrame(() => {
+      resizePending = false;
+      const appRect = app.getBoundingClientRect();
+      const sidebarW = layout.sidebarVisible ? 280 : 0;
+      const handleW = 4;
+      const available = appRect.width - sidebarW - handleW;
+      if (available <= 0) return;
+      let ratio = (e.clientX - appRect.left - sidebarW) / available;
+      ratio = Math.max(0.2, Math.min(0.8, ratio));
+      layout.splitRatio = ratio;
+      updateLayout();
+    });
   });
 
   document.addEventListener('mouseup', () => {
@@ -579,7 +629,7 @@ function restoreTheme() {
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute("data-theme") || "light";
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
   applyTheme(current === "dark" ? "light" : "dark");
 }
 
@@ -599,7 +649,7 @@ fileInput.addEventListener("change", () => {
     editor.value = typeof reader.result === "string" ? reader.result : "";
     currentFileName = file.name || "未命名文档.md";
     if (fileNameEl) fileNameEl.textContent = currentFileName;
-    renderMarkdown();
+    renderMarkdown(true);
     setStatus(`已打开：${currentFileName}`);
     fileInput.value = "";
   };
@@ -677,23 +727,28 @@ function generateHtmlTemplate(title, renderedHtml, theme) {
   <title>${escapeHtml(title)}</title>
   <style>
     :root {
-      --bg: ${theme === "dark" ? "#0f172a" : "#ffffff"};
-      --text: ${theme === "dark" ? "#e5e7eb" : "#1f2937"};
-      --border: ${theme === "dark" ? "#243041" : "#e5e7eb"};
-      --blockquote-bg: ${theme === "dark" ? "#101827" : "#f8fafc"};
-      --blockquote-border: ${theme === "dark" ? "#334155" : "#cbd5e1"};
-      --inline-code-bg: ${theme === "dark" ? "#1f2937" : "#f3f4f6"};
-      --pre-bg: ${theme === "dark" ? "#0b1220" : "#f6f8fa"};
-      --table-th-bg: ${theme === "dark" ? "#111827" : "#f9fafb"};
-      --link: ${theme === "dark" ? "#60a5fa" : "#2563eb"};
+      --bg: ${theme === "dark" ? "#1a1b1e" : "#f3efe7"};
+      --text: ${theme === "dark" ? "#e4ddd2" : "#2c2416"};
+      --muted: ${theme === "dark" ? "#9d9385" : "#6b5e48"};
+      --border: ${theme === "dark" ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.1)"};
+      --accent: ${theme === "dark" ? "#c9a96e" : "#8b6914"};
+      --blockquote-bg: ${theme === "dark" ? "#151618" : "#e8e1d3"};
+      --blockquote-border: ${theme === "dark" ? "#c9a96e" : "#8b6914"};
+      --inline-code-bg: ${theme === "dark" ? "#151618" : "#e8e1d3"};
+      --inline-code-border: ${theme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"};
+      --pre-bg: ${theme === "dark" ? "#151618" : "#e8e1d3"};
+      --table-th-bg: ${theme === "dark" ? "#151618" : "#e8e1d3"};
+      --table-stripe: ${theme === "dark" ? "#212327" : "#ebe5da"};
     }
     body {
       margin: 0;
       background: var(--bg);
       color: var(--text);
       font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-        "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+        "JetBrains Mono", "Cascadia Code", "Fira Code",
+        ui-monospace, monospace;
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
     }
     .container {
       max-width: 960px;
@@ -701,46 +756,51 @@ function generateHtmlTemplate(title, renderedHtml, theme) {
       padding: 32px 20px 64px;
       line-height: 1.8;
     }
-    .container h1, .container h2, .container h3, .container h4, .container h5, .container h6 {
+    .container h1, .container h2, .container h3,
+    .container h4, .container h5, .container h6 {
       margin-top: 1.6em;
       margin-bottom: 0.8em;
       line-height: 1.35;
+      font-weight: 600;
     }
     .container h1 {
-      font-size: 2em;
+      font-size: 1.6em;
       border-bottom: 1px solid var(--border);
-      padding-bottom: 0.3em;
+      padding-bottom: 0.4em;
     }
     .container h2 {
-      font-size: 1.5em;
+      font-size: 1.35em;
       border-bottom: 1px solid var(--border);
       padding-bottom: 0.3em;
     }
+    .container h3 { font-size: 1.15em; }
     .container pre {
       background: var(--pre-bg);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 14px 16px;
+      border-radius: 8px;
+      padding: 16px 20px;
       overflow: auto;
     }
     .container code {
-      font-family:
-        ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-        "Liberation Mono", "Courier New", monospace;
-      font-size: 0.92em;
+      font-family: "JetBrains Mono", "Cascadia Code", "Fira Code",
+        ui-monospace, monospace;
+      font-size: 0.88em;
     }
     .container :not(pre) > code {
       background: var(--inline-code-bg);
-      border-radius: 6px;
-      padding: 0.15em 0.4em;
+      border: 1px solid var(--inline-code-border);
+      border-radius: 3px;
+      padding: 0.1em 0.4em;
+      color: var(--accent);
     }
     .container blockquote {
       margin: 1em 0;
-      padding: 0.8em 1em;
+      padding: 0.8em 1.2em;
       background: var(--blockquote-bg);
-      border-left: 4px solid var(--blockquote-border);
-      border-radius: 8px;
-      color: ${theme === "dark" ? "#9ca3af" : "#475569"};
+      border-left: 3px solid var(--blockquote-border);
+      border-radius: 0 4px 4px 0;
+      color: var(--muted);
+      font-style: italic;
     }
     .container table {
       border-collapse: collapse;
@@ -748,25 +808,42 @@ function generateHtmlTemplate(title, renderedHtml, theme) {
       margin: 1em 0;
       display: block;
       overflow-x: auto;
+      font-size: 0.95em;
     }
     .container th, .container td {
       border: 1px solid var(--border);
-      padding: 8px 12px;
+      padding: 8px 14px;
       text-align: left;
     }
     .container th {
       background: var(--table-th-bg);
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.9em;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    .container tr:nth-child(even) td {
+      background: var(--table-stripe);
     }
     .container img {
       max-width: 100%;
-      border-radius: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
     }
     .container a {
-      color: var(--link);
+      color: var(--accent);
       text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 120ms ease;
     }
     .container a:hover {
-      text-decoration: underline;
+      border-bottom-color: var(--accent);
+    }
+    .container hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2em 0;
     }
   </style>
 </head>
@@ -838,7 +915,7 @@ function newDocument() {
   currentFileName = "未命名文档.md";
   if (fileNameEl) fileNameEl.textContent = currentFileName;
   editor.value = defaultMarkdown();
-  renderMarkdown();
+  renderMarkdown(true);
   setStatus("已新建文档");
 }
 
@@ -919,7 +996,7 @@ function handleImageFile(file) {
     const alt = (file.name || "image").replace(/\.[^.]+$/, "");
     const markdown = `\n![${alt}](${dataUrl})\n`;
     insertAtCursor(editor, markdown);
-    renderMarkdown();
+    renderMarkdown(true);
     setStatus(`已插入图片：${file.name || "image"}`);
   };
   reader.onerror = () => {
@@ -955,7 +1032,7 @@ editor.addEventListener("paste", (e) => {
 });
 
 /**
- * 拖拽图片
+ * 拖拽文件：图片 → 插入 Markdown 语法；.md → 加载内容
  */
 editor.addEventListener("dragover", (e) => {
   e.preventDefault();
@@ -963,14 +1040,33 @@ editor.addEventListener("dragover", (e) => {
 
 editor.addEventListener("drop", (e) => {
   e.preventDefault();
-  const files = e.dataTransfer?.files || [];
+  const files = Array.from(e.dataTransfer?.files || []);
   if (!files.length) return;
 
-  const firstImage = Array.from(files).find((file) => file.type.startsWith("image/"));
+  // 优先处理 .md / .markdown 文件：直接加载内容
+  const mdFile = files.find((f) =>
+    f.name.endsWith('.md') || f.name.endsWith('.markdown') ||
+    f.type === 'text/markdown' || f.type === 'text/x-markdown'
+  );
+  if (mdFile) {
+    e.stopPropagation();
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        loadFileContent(reader.result, mdFile.name);
+      }
+    };
+    reader.readAsText(mdFile, 'utf-8');
+    return;
+  }
+
+  // 其次处理图片
+  const firstImage = files.find((f) => f.type.startsWith('image/'));
   if (firstImage) {
     handleImageFile(firstImage);
   }
 });
+
 
 /**
  * 同步滚动：编辑区 -> 预览区
@@ -1022,55 +1118,29 @@ toc.addEventListener("click", (e) => {
   const rawTargetId = link.dataset.target || "";
   if (!rawTargetId) return;
 
-  console.log('目录点击调试:');
-  console.log('  rawTargetId:', rawTargetId);
-  
-  // 优先使用 getElementById，避免 CSS 选择器转义问题
   let target = document.getElementById(rawTargetId);
-  console.log('  getElementById结果:', target);
-  
-  // 如果找不到，回退到 querySelector（带转义）
   if (!target) {
-    console.log('  getElementById未找到，尝试querySelector');
     target = preview.querySelector(`#${cssEscape(rawTargetId)}`);
-    console.log('  querySelector结果:', target);
   }
-  
   if (!target) return;
 
-  console.log('  目标元素位置:', target.getBoundingClientRect());
-  console.log('  preview滚动位置前:', preview.scrollTop);
-  
-  // 标记目录点击触发的滚动，防止其他滚动监听器干扰
   isTocScrolling = true;
-  
-  // 计算目标元素的准确滚动位置
+
   const targetRect = target.getBoundingClientRect();
   const previewRect = preview.getBoundingClientRect();
   const targetTopRelative = targetRect.top - previewRect.top;
-  const scrollMargin = 16; // 与 CSS 中的 scroll-margin-top 一致
+  const scrollMargin = 16;
   let targetScrollTop = preview.scrollTop + targetTopRelative - scrollMargin;
-  
-  // 确保滚动位置在有效范围内
+
   const maxScrollTop = preview.scrollHeight - preview.clientHeight;
   targetScrollTop = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
-  
-  console.log('  目标相对位置:', targetTopRelative);
-  console.log('  计算滚动位置:', targetScrollTop);
-  console.log('  最大滚动位置:', maxScrollTop);
-  
-  // 使用平滑滚动到计算位置
+
   preview.scrollTo({
     top: targetScrollTop,
     behavior: "smooth"
   });
 
-  // 延迟记录滚动后位置，并清除滚动标志
-  setTimeout(() => {
-    console.log('  preview滚动位置后:', preview.scrollTop);
-    console.log('  目标元素滚动后位置:', target.getBoundingClientRect());
-    isTocScrolling = false;
-  }, 800);
+  setTimeout(() => { isTocScrolling = false; }, 800);
 
   history.replaceState(null, "", `#${encodeURIComponent(rawTargetId)}`);
   highlightActiveToc(rawTargetId);
@@ -1080,8 +1150,7 @@ toc.addEventListener("click", (e) => {
  * 快捷键
  */
 document.addEventListener("keydown", (e) => {
-  const isMac = navigator.platform.toUpperCase().includes("MAC");
-  const mod = isMac ? e.metaKey : e.ctrlKey;
+  const mod = IS_MAC ? e.metaKey : e.ctrlKey;
 
   if (mod && e.key.toLowerCase() === "s") {
     e.preventDefault();
@@ -1140,11 +1209,45 @@ filenameDialog?.addEventListener("click", (e) => {
   }
 });
 
-editor.addEventListener("input", debounce(renderMarkdown, 100));
+editor.addEventListener("input", debounce(renderMarkdown, 200));
 editor.addEventListener("scroll", syncEditorToPreview, { passive: true });
-preview.addEventListener("scroll", syncPreviewToEditor, { passive: true });
-preview.addEventListener("scroll", debounce(updateActiveTocOnScroll, 50), {
-  passive: true
+
+// 合并的预览滚动处理：同步滚动 + 目录高亮
+let tocHighlightTimer = null;
+preview.addEventListener("scroll", () => {
+  syncPreviewToEditor();
+  if (!tocHighlightTimer) {
+    tocHighlightTimer = setTimeout(() => {
+      tocHighlightTimer = null;
+      updateActiveTocOnScroll();
+    }, 60);
+  }
+}, { passive: true });
+
+// 页面不可见时停止渲染，恢复时重新渲染
+document.addEventListener("visibilitychange", () => {
+  isPageVisible = !document.hidden;
+  if (isPageVisible && dirtyWhileHidden) {
+    dirtyWhileHidden = false;
+    renderMarkdown(true);
+  }
+});
+
+// 低频周期：持久化 + 统计（避免每 200ms 渲染时都执行）
+setInterval(() => {
+  if (isPageVisible) {
+    persist();
+    updateStats();
+  }
+}, 2000);
+
+// 页面关闭前确保最后一次内容已保存，同时清理定时器
+window.addEventListener('beforeunload', () => {
+  persist();
+  if (tocHighlightTimer) {
+    clearTimeout(tocHighlightTimer);
+    tocHighlightTimer = null;
+  }
 });
 
 /**
@@ -1155,5 +1258,36 @@ restore();
 restoreLayoutState();
 updateLayout();
 if (fileNameEl) fileNameEl.textContent = currentFileName;
-renderMarkdown();
+renderMarkdown(true);
 setStatus("已就绪");
+
+// 文件关联启动：通过 URL 参数 ?file=<nonce> 识别来自 content script 的加载
+// 避免 chrome.storage.local 残留污染正常打开的标签页
+function loadFileContent(content, filename) {
+  editor.value = content;
+  currentFileName = filename || '未命名文档.md';
+  if (fileNameEl) fileNameEl.textContent = currentFileName;
+  renderMarkdown(true);
+  updateStats();
+  persist();
+  setStatus(`已打开：${currentFileName}`);
+}
+
+(function checkFileLaunch() {
+  const params = new URLSearchParams(window.location.search);
+  const nonce = params.get('file');
+  if (!nonce) return;
+
+  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+
+  const contentKey = 'file:' + nonce;
+  const nameKey = 'name:' + nonce;
+  chrome.storage.local.get([contentKey, nameKey], (data) => {
+    const content = data[contentKey];
+    if (typeof content === 'string') {
+      loadFileContent(content, data[nameKey] || 'untitled.md');
+      chrome.storage.local.remove([contentKey, nameKey]);
+    }
+  });
+})();
+

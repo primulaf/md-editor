@@ -139,19 +139,8 @@ body {
   overflow: hidden;
 }
 
-/* ============================================
-   Noise Texture Overlay
-   ============================================ */
-
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  opacity: 0.035;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  pointer-events: none;
-  z-index: 999;
-}
+/* Noise texture removed — SVG feTurbulence causes continuous
+   GPU recomputation, killing performance across multiple tabs */
 
 /* ============================================
    Layout — Three Column Grid
@@ -163,7 +152,7 @@ body::after {
   height: 100vh;
   position: relative;
   z-index: 1;
-  transition: grid-template-columns 180ms var(--ease-out);
+  /* grid 过渡已移除：grid-template-columns 动画每帧触发布局重算 */
 }
 
 /* ============================================
@@ -594,14 +583,6 @@ body::after {
   min-height: 0;
 }
 
-/* Sidebar collapsed */
-
-.sidebar.collapsed {
-  overflow: hidden;
-  padding: 0;
-  border-right-width: 0;
-}
-
 /* Editor Textarea */
 
 #editor {
@@ -671,10 +652,6 @@ body::after {
 /* ============================================
    Markdown Body — Preview Styling
    ============================================ */
-
-.markdown-body {
-  /* 内容跟随面板宽度自适应 */
-}
 
 .markdown-body > :first-child {
   margin-top: 0;
