@@ -2,7 +2,8 @@
 (function () {
   const pre = document.querySelector('pre');
   const content = pre ? pre.textContent : (document.body.textContent || '');
-  const filename = document.title || 'untitled.md';
+  const pathname = decodeURIComponent(window.location.pathname || '');
+  const filename = pathname.split('/').pop() || document.title || 'untitled.md';
   const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
   chrome.storage.local.set(

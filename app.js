@@ -59,6 +59,8 @@ let isPageVisible = true;
 let dirtyWhileHidden = false;
 let cachedHeadings = [];
 let resizePending = false;
+let lastSavedContent = null;
+let isDirty = false;
 
 // 文件名对话框状态
 let pendingFilenameCallback = null;
@@ -221,6 +223,20 @@ function setStatus(text) {
   }
 }
 
+function updateDirtyIndicator() {
+  if (!statusEl || !fileNameEl) return;
+  if (isDirty) {
+    statusEl.textContent = '未保存 · 编辑区更改不会同步到源文件 · ^S 保存下载';
+    statusEl.style.color = 'var(--danger)';
+    if (!currentFileName.endsWith(' *')) {
+      fileNameEl.textContent = currentFileName + ' *';
+    }
+  } else {
+    statusEl.style.color = '';
+    fileNameEl.textContent = currentFileName;
+  }
+}
+
 /**
  * 提取标题纯文本（排除标题锚点和隐藏辅助文本）
  */
@@ -326,6 +342,12 @@ function renderMarkdown(force) {
 
     updateActiveTocOnScroll();
     setStatus(lastHighlightError ? "已渲染（部分代码高亮暂不可用）" : "已渲染");
+
+    // 追踪未保存更改：setStatus 之后调用，确保提醒不被覆盖
+    if (lastSavedContent !== null) {
+      isDirty = (currentSource !== lastSavedContent);
+      updateDirtyIndicator();
+    }
   });
 }
 
@@ -466,6 +488,8 @@ function restore() {
   } else {
     editor.value = defaultMarkdown();
   }
+  lastSavedContent = editor.value;
+  isDirty = false;
 }
 
 /**
@@ -649,6 +673,8 @@ fileInput.addEventListener("change", () => {
     editor.value = typeof reader.result === "string" ? reader.result : "";
     currentFileName = file.name || "未命名文档.md";
     if (fileNameEl) fileNameEl.textContent = currentFileName;
+    lastSavedContent = editor.value;
+    isDirty = false;
     renderMarkdown(true);
     setStatus(`已打开：${currentFileName}`);
     fileInput.value = "";
@@ -698,6 +724,9 @@ function _saveMarkdownFile(filename) {
   a.remove();
   URL.revokeObjectURL(url);
 
+  lastSavedContent = editor.value;
+  isDirty = false;
+  updateDirtyIndicator();
   setStatus(`已保存：${currentFileName}`);
 }
 
@@ -915,6 +944,8 @@ function newDocument() {
   currentFileName = "未命名文档.md";
   if (fileNameEl) fileNameEl.textContent = currentFileName;
   editor.value = defaultMarkdown();
+  lastSavedContent = editor.value;
+  isDirty = false;
   renderMarkdown(true);
   setStatus("已新建文档");
 }
@@ -1241,12 +1272,16 @@ setInterval(() => {
   }
 }, 2000);
 
-// 页面关闭前确保最后一次内容已保存，同时清理定时器
-window.addEventListener('beforeunload', () => {
-  persist();
+// 页面关闭前：清理定时器 + 未保存更改提醒 + 持久化
+window.addEventListener('beforeunload', (e) => {
   if (tocHighlightTimer) {
     clearTimeout(tocHighlightTimer);
     tocHighlightTimer = null;
+  }
+  persist();
+  if (isDirty) {
+    e.preventDefault();
+    e.returnValue = '';
   }
 });
 
@@ -1267,6 +1302,8 @@ function loadFileContent(content, filename) {
   editor.value = content;
   currentFileName = filename || '未命名文档.md';
   if (fileNameEl) fileNameEl.textContent = currentFileName;
+  lastSavedContent = content;
+  isDirty = false;
   renderMarkdown(true);
   updateStats();
   persist();
