@@ -3,18 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Markdown 编辑器小工具</title>
-
-  <!-- SEO 与可访问性元数据 -->
-  <meta name="description" content="在线 Markdown 编辑器，支持实时预览、目录生成、深色模式、图片拖拽粘贴与 HTML 导出">
-  <meta name="keywords" content="Markdown,编辑器,预览,HTML导出,深色模式,目录生成,图片粘贴">
-  <meta name="author" content="Markdown 工具">
+  <title>md.</title>
+  <meta name="description" content="离线 Markdown 编辑器 — 实时预览、深色模式、图片粘贴、HTML 导出">
+  <meta name="author" content="md.">
 
   <!-- highlight.js 代码高亮主题（app.js 会动态切换这个链接） -->
   <link
     id="hljs-theme"
     rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css"
+    href="./lib/github.min.css"
   />
 
   <!-- 自定义样式 -->
@@ -28,8 +25,8 @@
     <!-- 左侧边栏 -->
     <aside class="sidebar" role="complementary" aria-label="工具面板">
       <div class="brand">
-        <h1>Markdown 工具</h1>
-        <p>编辑 / 预览 / 导出 / 目录</p>
+        <h1>md.</h1>
+        <p>编辑 &middot; 预览 &middot; 导出</p>
       </div>
 
       <div class="toolbar">
@@ -70,14 +67,14 @@
       </div>
 
       <div class="tips">
-        <div class="panel-title">增强功能</div>
+        <div class="panel-title">功能</div>
         <ul>
-          <li>支持同步滚动</li>
-          <li>支持深色模式</li>
-          <li>支持导出 HTML</li>
-          <li>支持拖拽 / 粘贴图片</li>
-          <li>支持文档统计信息</li>
-          <li>支持目录跳转与当前章节高亮</li>
+          <li>实时预览 &amp; 同步滚动</li>
+          <li>深浅色模式切换</li>
+          <li>HTML 导出</li>
+          <li>图片拖拽 / 粘贴</li>
+          <li>文档统计</li>
+          <li>目录自动生成</li>
         </ul>
       </div>
     </aside>
@@ -85,16 +82,24 @@
     <!-- 中间编辑区 -->
     <main class="editor-pane">
       <div class="pane-header">
-        <span>编辑区</span>
-        <span id="fileName" class="muted">未命名文档.md</span>
+        <button id="sidebarToggle" class="pane-btn" type="button">侧栏</button>
+        <span class="pane-title">编辑区</span>
+        <div class="pane-header-right">
+          <span id="fileName" class="muted">未命名文档.md</span>
+          <button id="closeEditorBtn" class="pane-btn pane-close-btn" type="button" title="隐藏编辑区">×</button>
+        </div>
       </div>
 
       <div class="editor-toolbar">
-        <span class="hint">提示：可直接粘贴图片，或把图片拖进编辑区</span>
-        <span class="hint">快捷键：Ctrl/Cmd + S 保存，Ctrl/Cmd + E 导出 HTML，Ctrl/Cmd + O 打开文件</span>
+        <span class="hint">^S 保存 &nbsp; ^E 导出 HTML &nbsp; ^O 打开文件</span>
+        <span class="hint">拖拽或粘贴图片到编辑区</span>
       </div>
 
       <textarea id="editor" spellcheck="false"></textarea>
+
+      <div class="pane-restore-wrap">
+        <button class="pane-restore" data-restore="editor" type="button">显示编辑区</button>
+      </div>
 
       <input
         type="file"
@@ -104,21 +109,30 @@
       />
     </main>
 
+    <!-- 分栏拖拽手柄 -->
+    <div id="resizeHandle" class="resize-handle"></div>
+
     <!-- 右侧预览区 -->
     <section class="preview-pane">
       <div class="pane-header">
-        <span>预览区</span>
-        <span id="status" class="muted">已就绪</span>
+        <span class="pane-title">预览区</span>
+        <div class="pane-header-right">
+          <span id="status" class="muted">已就绪</span>
+          <button id="closePreviewBtn" class="pane-btn pane-close-btn" type="button" title="隐藏预览区">×</button>
+        </div>
       </div>
       <div id="preview" class="preview markdown-body"></div>
+      <div class="pane-restore-wrap">
+        <button class="pane-restore" data-restore="preview" type="button">显示预览区</button>
+      </div>
     </section>
   </div>
 
   <!-- 第三方库：顺序不要乱 -->
-  <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/markdown-it-anchor@9.2.0/dist/markdownItAnchor.umd.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
+  <script src="./lib/markdown-it.min.js"></script>
+  <script src="./lib/markdownItAnchor.umd.js"></script>
+  <script src="./lib/purify.min.js"></script>
+  <script src="./lib/highlight.min.js"></script>
 
   <!-- 文件名输入对话框 -->
   <div id="filenameDialog" class="filename-dialog" role="dialog" aria-modal="true" aria-labelledby="filenameDialogTitle" hidden>

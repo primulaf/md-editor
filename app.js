@@ -26,8 +26,28 @@ const filenameDialogTitle = document.getElementById("filenameDialogTitle");
 const STORAGE_KEY = "md-editor-content";
 const STORAGE_FILE_NAME_KEY = "md-editor-file-name";
 const STORAGE_THEME_KEY = "md-editor-theme";
+const LAYOUT_STORAGE_KEY = "md-editor-layout";
 
 let currentFileName = "未命名文档.md";
+
+// 布局状态
+const app = document.querySelector('.app');
+const sidebarEl = document.querySelector('.sidebar');
+const editorPane = document.querySelector('.editor-pane');
+const previewPane = document.querySelector('.preview-pane');
+const resizeHandle = document.getElementById('resizeHandle');
+const sidebarToggle = document.getElementById('sidebarToggle');
+const closeEditorBtn = document.getElementById('closeEditorBtn');
+const closePreviewBtn = document.getElementById('closePreviewBtn');
+
+const layout = {
+  sidebarVisible: false,
+  editorVisible: true,
+  previewVisible: true,
+  splitRatio: 0.5
+};
+
+let isResizing = false;
 let syncingFrom = null;
 let lastHighlightError = false;
 let isTocScrolling = false;
@@ -404,6 +424,133 @@ function restore() {
 }
 
 /**
+ * 保存布局状态
+ */
+function saveLayout() {
+  localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify({
+    sidebarVisible: layout.sidebarVisible,
+    splitRatio: layout.splitRatio
+  }));
+}
+
+/**
+ * 恢复布局状态
+ */
+function restoreLayoutState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_STORAGE_KEY));
+    if (saved) {
+      layout.sidebarVisible = saved.sidebarVisible ?? false;
+      layout.splitRatio = Math.max(0.2, Math.min(0.8, saved.splitRatio ?? 0.5));
+    }
+  } catch (e) { /* ignore */ }
+}
+
+/**
+ * 更新布局：根据 layout 状态设置 CSS 变量和类名
+ */
+function updateLayout() {
+  const sidebarW = layout.sidebarVisible ? '280px' : '0px';
+  sidebarEl.classList.toggle('collapsed', !layout.sidebarVisible);
+
+  const bothVisible = layout.editorVisible && layout.previewVisible;
+  const handleW = bothVisible ? '4px' : '0px';
+
+  let editorW;
+  if (!layout.editorVisible) {
+    editorW = '32px';
+  } else if (layout.previewVisible) {
+    editorW = `${layout.splitRatio}fr`;
+  } else {
+    editorW = '1fr';
+  }
+  editorPane.classList.toggle('collapsed', !layout.editorVisible);
+
+  let previewW;
+  if (!layout.previewVisible) {
+    previewW = '32px';
+  } else if (layout.editorVisible) {
+    previewW = `${1 - layout.splitRatio}fr`;
+  } else {
+    previewW = '1fr';
+  }
+  previewPane.classList.toggle('collapsed', !layout.previewVisible);
+
+  app.style.setProperty('--grid-sidebar', sidebarW);
+  app.style.setProperty('--grid-editor', editorW);
+  app.style.setProperty('--grid-handle', handleW);
+  app.style.setProperty('--grid-preview', previewW);
+
+  saveLayout();
+}
+
+/**
+ * 切换侧边栏
+ */
+function toggleSidebar() {
+  layout.sidebarVisible = !layout.sidebarVisible;
+  updateLayout();
+}
+
+/**
+ * 关闭 / 恢复面板
+ */
+function closePane(pane) {
+  if (pane === 'editor') {
+    layout.editorVisible = false;
+    layout.previewVisible = true;
+  } else if (pane === 'preview') {
+    layout.previewVisible = false;
+    layout.editorVisible = true;
+  }
+  updateLayout();
+}
+
+function restorePane(pane) {
+  if (pane === 'editor') {
+    layout.editorVisible = true;
+  } else if (pane === 'preview') {
+    layout.previewVisible = true;
+  }
+  updateLayout();
+}
+
+/**
+ * 分栏拖拽
+ */
+function initResizeHandle() {
+  resizeHandle.addEventListener('mousedown', (e) => {
+    if (!layout.editorVisible || !layout.previewVisible) return;
+    isResizing = true;
+    resizeHandle.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const appRect = app.getBoundingClientRect();
+    const sidebarW = layout.sidebarVisible ? 280 : 0;
+    const handleW = 4;
+    const available = appRect.width - sidebarW - handleW;
+    if (available <= 0) return;
+    let ratio = (e.clientX - appRect.left - sidebarW) / available;
+    ratio = Math.max(0.2, Math.min(0.8, ratio));
+    layout.splitRatio = ratio;
+    updateLayout();
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!isResizing) return;
+    isResizing = false;
+    resizeHandle.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+}
+
+/**
  * 主题控制
  */
 function applyTheme(theme) {
@@ -414,8 +561,8 @@ function applyTheme(theme) {
   if (hljsThemeEl) {
     hljsThemeEl.href =
       theme === "dark"
-        ? "https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
-        : "https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css";
+        ? "./lib/github-dark.min.css"
+        : "./lib/github.min.css";
   }
 
   localStorage.setItem(STORAGE_THEME_KEY, theme);
@@ -427,7 +574,7 @@ function applyTheme(theme) {
 }
 
 function restoreTheme() {
-  const saved = localStorage.getItem(STORAGE_THEME_KEY) || "light";
+  const saved = localStorage.getItem(STORAGE_THEME_KEY) || "dark";
   applyTheme(saved);
 }
 
@@ -699,54 +846,52 @@ function newDocument() {
  * 默认示例内容
  */
 function defaultMarkdown() {
-  return `# Markdown 编辑器增强版
+  return `# md. — 离线 Markdown 编辑器
 
-欢迎使用这个增强版小工具。
+欢迎使用 **md.**，一款精致的离线 Markdown 编辑工具。
 
-## 新增的 5 个实用功能
+## 功能一览
 
-- 同步滚动
-- 深色模式
-- 导出 HTML
-- 拖拽 / 粘贴图片自动插入
-- 文档统计信息
+| 功能 | 说明 |
+|---|---|
+| 编辑 | 实时 Markdown 编辑 |
+| 预览 | 同步渲染预览 |
+| 目录 | 自动生成文档目录 |
+| 导出 | 一键导出 HTML |
+| 图片 | 拖拽 / 粘贴自动插入 |
+| 主题 | 深色 / 浅色模式 |
 
-## 代码高亮示例
+## 代码高亮
 
 \`\`\`js
 function greet(name) {
   return \`Hello, \${name}!\`;
 }
 
-console.log(greet("Markdown"));
+console.log(greet("md."));
+\`\`\`
+
+\`\`\`python
+def fibonacci(n):
+    a, b = 0, 1
+    for _ in range(n):
+        yield a
+        a, b = b, a + b
 \`\`\`
 
 ## 图片示例
 
 你可以：
-1. 直接粘贴一张图片到编辑区
-2. 把图片拖进编辑区
+1. **直接粘贴**一张图片到编辑区
+2. **拖拽图片**到编辑区
 
-它会自动变成 Markdown 图片语法。
+图片会自动转换为 Markdown 语法。
 
-## 表格示例
-
-| 功能 | 状态 |
-|---|---|
-| 编辑 | ✅ |
-| 预览 | ✅ |
-| 目录 | ✅ |
-| 导出 HTML | ✅ |
-
-## 链接示例
+## 链接
 
 https://www.markdownguide.org/
 
-## 使用提示
-
-- Ctrl / Cmd + S：保存 Markdown
-- Ctrl / Cmd + E：导出 HTML
-- 左侧滚动时，右侧预览会同步滚动`;
+> **提示** — ^S 保存 · ^E 导出 HTML · ^O 打开文件`;
 }
 
 /**
@@ -963,6 +1108,20 @@ exportHtmlBtn?.addEventListener("click", exportHtmlFile);
 themeBtn?.addEventListener("click", toggleTheme);
 newBtn?.addEventListener("click", newDocument);
 
+// 布局控制事件
+sidebarToggle?.addEventListener("click", toggleSidebar);
+closeEditorBtn?.addEventListener("click", () => closePane('editor'));
+closePreviewBtn?.addEventListener("click", () => closePane('preview'));
+
+document.querySelectorAll('.pane-restore').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const pane = btn.dataset.restore;
+    if (pane) restorePane(pane);
+  });
+});
+
+initResizeHandle();
+
 // 文件名对话框事件
 filenameCancelBtn?.addEventListener("click", handleFilenameCancel);
 filenameConfirmBtn?.addEventListener("click", handleFilenameConfirm);
@@ -993,6 +1152,8 @@ preview.addEventListener("scroll", debounce(updateActiveTocOnScroll, 50), {
  */
 restoreTheme();
 restore();
+restoreLayoutState();
+updateLayout();
 if (fileNameEl) fileNameEl.textContent = currentFileName;
 renderMarkdown();
 setStatus("已就绪");
