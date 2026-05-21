@@ -6,6 +6,7 @@ const openBtn = document.getElementById("openBtn");
 const saveBtn = document.getElementById("saveBtn");
 const exportHtmlBtn = document.getElementById("exportHtmlBtn");
 const themeBtn = document.getElementById("themeBtn");
+const fontSizeBtn = document.getElementById("fontSizeBtn");
 const newBtn = document.getElementById("newBtn");
 const fileNameEl = document.getElementById("fileName");
 const statusEl = document.getElementById("status");
@@ -27,6 +28,7 @@ const IS_MAC = navigator.platform.toUpperCase().includes('MAC');
 const STORAGE_KEY = "md-editor-content";
 const STORAGE_FILE_NAME_KEY = "md-editor-file-name";
 const STORAGE_THEME_KEY = "md-editor-theme";
+const STORAGE_FONT_SIZE_KEY = "md-editor-font-size";
 const LAYOUT_STORAGE_KEY = "md-editor-layout";
 
 let currentFileName = "未命名文档.md";
@@ -308,47 +310,59 @@ function renderMarkdown(force) {
   requestAnimationFrame(() => {
     pendingRender = false;
 
-    // RAF 回调中再次检查内容是否已变化
-    const currentSource = editor.value || "";
-    if (!force && currentSource === lastRenderedSource) return;
-    lastRenderedSource = currentSource;
+    try {
+      // RAF 回调中再次检查内容是否已变化
+      const currentSource = editor.value || "";
+      if (!force && currentSource === lastRenderedSource) return;
+      lastRenderedSource = currentSource;
 
-    lastHighlightError = false;
-    const rawHtml = md.render(currentSource);
+      lastHighlightError = false;
+      const rawHtml = md.render(currentSource);
 
-    const safeHtml = DOMPurify.sanitize(rawHtml, {
-      USE_PROFILES: { html: true },
-      ADD_ATTR: ["target", "rel", "class", "id", "aria-hidden", "aria-label"]
-    });
+      const safeHtml = DOMPurify.sanitize(rawHtml, {
+        USE_PROFILES: { html: true },
+        ADD_ATTR: ["target", "rel", "class", "id", "aria-hidden", "aria-label"]
+      });
 
-    preview.innerHTML = safeHtml;
-    refreshHeadings();
+      preview.innerHTML = safeHtml;
+      refreshHeadings();
 
-    // 所有外链新窗口打开
-    preview.querySelectorAll("a[href]").forEach((a) => {
-      const href = a.getAttribute("href") || "";
-      if (href.startsWith("http://") || href.startsWith("https://")) {
-        a.setAttribute("target", "_blank");
-        a.setAttribute("rel", "noopener noreferrer");
+      // 所有外链新窗口打开
+      preview.querySelectorAll("a[href]").forEach((a) => {
+        const href = a.getAttribute("href") || "";
+        if (href.startsWith("http://") || href.startsWith("https://")) {
+          a.setAttribute("target", "_blank");
+          a.setAttribute("rel", "noopener noreferrer");
+        }
+      });
+
+      // 仅当标题结构变化时才重建目录
+      const headingHash = computeHeadingHash();
+      if (headingHash !== lastHeadingHash) {
+        lastHeadingHash = headingHash;
+        buildToc();
       }
-    });
 
-    // 仅当标题结构变化时才重建目录
-    const headingHash = computeHeadingHash();
-    if (headingHash !== lastHeadingHash) {
-      lastHeadingHash = headingHash;
-      buildToc();
-    }
+      updateActiveTocOnScroll();
+      setStatus(lastHighlightError ? "已渲染（部分代码高亮暂不可用）" : "已渲染");
 
-    updateActiveTocOnScroll();
-    setStatus(lastHighlightError ? "已渲染（部分代码高亮暂不可用）" : "已渲染");
-
-    // 追踪未保存更改：setStatus 之后调用，确保提醒不被覆盖
-    if (lastSavedContent !== null) {
-      isDirty = (currentSource !== lastSavedContent);
-      updateDirtyIndicator();
+      // 追踪未保存更改：setStatus 之后调用，确保提醒不被覆盖
+      if (lastSavedContent !== null) {
+        isDirty = (currentSource !== lastSavedContent);
+        updateDirtyIndicator();
+      }
+    } catch (err) {
+      console.error('渲染异常：', err);
+      setStatus('渲染失败，请刷新页面');
     }
   });
+}
+
+/** 重置 TOC 渲染状态，强制下次渲染重建目录 */
+function resetTocState() {
+  lastHeadingHash = '';
+  cachedHeadings = [];
+  lastRenderedSource = null;
 }
 
 /** 计算标题结构的快速哈希，用于判断 TOC 是否需要重建 */
@@ -398,7 +412,7 @@ function buildToc() {
         <a
           href="#${encodeURIComponent(uniqueId)}"
           class="toc-link"
-          data-target="${uniqueId}"
+          data-target="${escapeHtml(uniqueId)}"
           title="${escapeHtml(text)}"
         >
           ${escapeHtml(text)}
@@ -414,10 +428,16 @@ function buildToc() {
  * 高亮当前目录项
  */
 function highlightActiveToc(activeId) {
+  let activeLink = null;
   toc.querySelectorAll(".toc-link").forEach((link) => {
     const isActive = link.dataset.target === activeId;
     link.classList.toggle("active", isActive);
+    if (isActive) activeLink = link;
   });
+  // 自动滚动目录面板，确保激活项可见
+  if (activeLink) {
+    activeLink.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
 }
 
 /**
@@ -658,6 +678,30 @@ function toggleTheme() {
 }
 
 /**
+ * 字号控制
+ */
+const FONT_SIZE_TIERS = ['small', 'medium', 'large'];
+const FONT_SIZE_LABELS = { small: '字号：小', medium: '字号：中', large: '字号：大' };
+
+function applyFontSize(tier) {
+  document.documentElement.setAttribute('data-font-size', tier === 'small' ? '' : tier);
+  if (fontSizeBtn) fontSizeBtn.textContent = FONT_SIZE_LABELS[tier] || '字号：小';
+  localStorage.setItem(STORAGE_FONT_SIZE_KEY, tier);
+}
+
+function toggleFontSize() {
+  const current = document.documentElement.getAttribute('data-font-size') || 'small';
+  const idx = FONT_SIZE_TIERS.indexOf(current);
+  const next = FONT_SIZE_TIERS[(idx + 1) % FONT_SIZE_TIERS.length];
+  applyFontSize(next);
+}
+
+function restoreFontSize() {
+  const saved = localStorage.getItem(STORAGE_FONT_SIZE_KEY) || 'small';
+  applyFontSize(saved);
+}
+
+/**
  * 打开 .md 文件
  */
 function openMarkdownFile() {
@@ -675,6 +719,7 @@ fileInput.addEventListener("change", () => {
     if (fileNameEl) fileNameEl.textContent = currentFileName;
     lastSavedContent = editor.value;
     isDirty = false;
+    resetTocState();
     renderMarkdown(true);
     setStatus(`已打开：${currentFileName}`);
     fileInput.value = "";
@@ -946,6 +991,7 @@ function newDocument() {
   editor.value = defaultMarkdown();
   lastSavedContent = editor.value;
   isDirty = false;
+  resetTocState();
   renderMarkdown(true);
   setStatus("已新建文档");
 }
@@ -1175,6 +1221,8 @@ toc.addEventListener("click", (e) => {
 
   history.replaceState(null, "", `#${encodeURIComponent(rawTargetId)}`);
   highlightActiveToc(rawTargetId);
+  // 确保被点击的目录项在面板中可见
+  link.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 });
 
 /**
@@ -1206,6 +1254,7 @@ openBtn?.addEventListener("click", openMarkdownFile);
 saveBtn?.addEventListener("click", saveMarkdownFile);
 exportHtmlBtn?.addEventListener("click", exportHtmlFile);
 themeBtn?.addEventListener("click", toggleTheme);
+fontSizeBtn?.addEventListener("click", toggleFontSize);
 newBtn?.addEventListener("click", newDocument);
 
 // 布局控制事件
@@ -1265,7 +1314,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // 低频周期：持久化 + 统计（避免每 200ms 渲染时都执行）
-setInterval(() => {
+const persistInterval = setInterval(() => {
   if (isPageVisible) {
     persist();
     updateStats();
@@ -1274,6 +1323,7 @@ setInterval(() => {
 
 // 页面关闭前：清理定时器 + 未保存更改提醒 + 持久化
 window.addEventListener('beforeunload', (e) => {
+  clearInterval(persistInterval);
   if (tocHighlightTimer) {
     clearTimeout(tocHighlightTimer);
     tocHighlightTimer = null;
@@ -1289,6 +1339,7 @@ window.addEventListener('beforeunload', (e) => {
  * 初始化
  */
 restoreTheme();
+restoreFontSize();
 restore();
 restoreLayoutState();
 updateLayout();
@@ -1304,6 +1355,7 @@ function loadFileContent(content, filename) {
   if (fileNameEl) fileNameEl.textContent = currentFileName;
   lastSavedContent = content;
   isDirty = false;
+  resetTocState();
   renderMarkdown(true);
   updateStats();
   persist();
@@ -1327,4 +1379,3 @@ function loadFileContent(content, filename) {
     }
   });
 })();
-
