@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "md.",
-  "version": "1.2.0",
-  "description": "离线 Markdown 编辑器 — 实时预览、深色模式、图片粘贴、HTML 导出，支持直接打开 .md 文件",
+  "version": "1.3.0",
+  "description": "GitHub 风格离线 Markdown 编辑器，支持实时预览、目录导航、图片粘贴、HTML 导出和直接打开 .md 文件",
   "action": {
     "default_title": "打开 md. 编辑器"
   },

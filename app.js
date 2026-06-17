@@ -5,12 +5,10 @@ const fileInput = document.getElementById("fileInput");
 const openBtn = document.getElementById("openBtn");
 const saveBtn = document.getElementById("saveBtn");
 const exportHtmlBtn = document.getElementById("exportHtmlBtn");
-const themeBtn = document.getElementById("themeBtn");
 const fontSizeBtn = document.getElementById("fontSizeBtn");
 const newBtn = document.getElementById("newBtn");
 const fileNameEl = document.getElementById("fileName");
 const statusEl = document.getElementById("status");
-const hljsThemeEl = document.getElementById("hljs-theme");
 
 const statChars = document.getElementById("statChars");
 const statLines = document.getElementById("statLines");
@@ -27,7 +25,6 @@ const filenameDialogTitle = document.getElementById("filenameDialogTitle");
 const IS_MAC = navigator.platform.toUpperCase().includes('MAC');
 const STORAGE_KEY = "md-editor-content";
 const STORAGE_FILE_NAME_KEY = "md-editor-file-name";
-const STORAGE_THEME_KEY = "md-editor-theme";
 const STORAGE_FONT_SIZE_KEY = "md-editor-font-size";
 const LAYOUT_STORAGE_KEY = "md-editor-layout";
 
@@ -40,12 +37,13 @@ const editorPane = document.querySelector('.editor-pane');
 const previewPane = document.querySelector('.preview-pane');
 const resizeHandle = document.getElementById('resizeHandle');
 const sidebarToggle = document.getElementById('sidebarToggle');
+const previewSidebarToggle = document.getElementById('previewSidebarToggle');
 const closeEditorBtn = document.getElementById('closeEditorBtn');
 const closePreviewBtn = document.getElementById('closePreviewBtn');
 
 const layout = {
   sidebarVisible: false,
-  editorVisible: true,
+  editorVisible: false,
   previewVisible: true,
   splitRatio: 0.5
 };
@@ -604,6 +602,12 @@ function restorePane(pane) {
   updateLayout();
 }
 
+function showPreviewOnly() {
+  layout.editorVisible = false;
+  layout.previewVisible = true;
+  updateLayout();
+}
+
 /**
  * 分栏拖拽
  */
@@ -642,39 +646,6 @@ function initResizeHandle() {
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
   });
-}
-
-/**
- * 主题控制
- */
-function applyTheme(theme) {
-  const root = document.documentElement;
-  root.setAttribute("data-theme", theme);
-
-  // 如果页面中有 hljs 主题 link，则同步切换
-  if (hljsThemeEl) {
-    hljsThemeEl.href =
-      theme === "dark"
-        ? "./lib/github-dark.min.css"
-        : "./lib/github.min.css";
-  }
-
-  localStorage.setItem(STORAGE_THEME_KEY, theme);
-
-  if (themeBtn) {
-    themeBtn.textContent =
-      theme === "dark" ? "切换浅色模式" : "切换深色模式";
-  }
-}
-
-function restoreTheme() {
-  const saved = localStorage.getItem(STORAGE_THEME_KEY) || "dark";
-  applyTheme(saved);
-}
-
-function toggleTheme() {
-  const current = document.documentElement.getAttribute("data-theme") || "dark";
-  applyTheme(current === "dark" ? "light" : "dark");
 }
 
 /**
@@ -720,6 +691,7 @@ fileInput.addEventListener("change", () => {
     lastSavedContent = editor.value;
     isDirty = false;
     resetTocState();
+    showPreviewOnly();
     renderMarkdown(true);
     setStatus(`已打开：${currentFileName}`);
     fileInput.value = "";
@@ -792,35 +764,33 @@ function saveMarkdownFile() {
 /**
  * 生成 HTML 导出模板
  */
-function generateHtmlTemplate(title, renderedHtml, theme) {
+function generateHtmlTemplate(title, renderedHtml) {
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-theme="${theme}">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)}</title>
   <style>
     :root {
-      --bg: ${theme === "dark" ? "#1a1b1e" : "#f3efe7"};
-      --text: ${theme === "dark" ? "#e4ddd2" : "#2c2416"};
-      --muted: ${theme === "dark" ? "#9d9385" : "#6b5e48"};
-      --border: ${theme === "dark" ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.1)"};
-      --accent: ${theme === "dark" ? "#c9a96e" : "#8b6914"};
-      --blockquote-bg: ${theme === "dark" ? "#151618" : "#e8e1d3"};
-      --blockquote-border: ${theme === "dark" ? "#c9a96e" : "#8b6914"};
-      --inline-code-bg: ${theme === "dark" ? "#151618" : "#e8e1d3"};
-      --inline-code-border: ${theme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"};
-      --pre-bg: ${theme === "dark" ? "#151618" : "#e8e1d3"};
-      --table-th-bg: ${theme === "dark" ? "#151618" : "#e8e1d3"};
-      --table-stripe: ${theme === "dark" ? "#212327" : "#ebe5da"};
+      --bg: #ffffff;
+      --text: #24292f;
+      --muted: #57606a;
+      --border: #d0d7de;
+      --accent: #0969da;
+      --blockquote-bg: #f6f8fa;
+      --blockquote-border: #d0d7de;
+      --inline-code-bg: rgba(175, 184, 193, 0.2);
+      --inline-code-border: transparent;
+      --pre-bg: #f6f8fa;
+      --table-th-bg: #f6f8fa;
+      --table-stripe: #f6f8fa;
     }
     body {
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font-family:
-        "JetBrains Mono", "Cascadia Code", "Fira Code",
-        ui-monospace, monospace;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
       font-size: 14px;
       -webkit-font-smoothing: antialiased;
     }
@@ -851,19 +821,18 @@ function generateHtmlTemplate(title, renderedHtml, theme) {
     .container pre {
       background: var(--pre-bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 6px;
       padding: 16px 20px;
       overflow: auto;
     }
     .container code {
-      font-family: "JetBrains Mono", "Cascadia Code", "Fira Code",
-        ui-monospace, monospace;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
       font-size: 0.88em;
     }
     .container :not(pre) > code {
       background: var(--inline-code-bg);
       border: 1px solid var(--inline-code-border);
-      border-radius: 3px;
+      border-radius: 6px;
       padding: 0.1em 0.4em;
       color: var(--accent);
     }
@@ -872,9 +841,8 @@ function generateHtmlTemplate(title, renderedHtml, theme) {
       padding: 0.8em 1.2em;
       background: var(--blockquote-bg);
       border-left: 3px solid var(--blockquote-border);
-      border-radius: 0 4px 4px 0;
+      border-radius: 0;
       color: var(--muted);
-      font-style: italic;
     }
     .container table {
       border-collapse: collapse;
@@ -902,7 +870,7 @@ function generateHtmlTemplate(title, renderedHtml, theme) {
     }
     .container img {
       max-width: 100%;
-      border-radius: 8px;
+      border-radius: 6px;
       border: 1px solid var(--border);
     }
     .container a {
@@ -955,9 +923,8 @@ function _exportHtmlFile(filename) {
   const validatedFilename = validateFilename(filename, '.html');
   const title = validatedFilename.replace(/\.html$/i, "");
   const renderedHtml = preview.innerHTML;
-  const theme = document.documentElement.getAttribute("data-theme") || "light";
 
-  const htmlContent = generateHtmlTemplate(title, renderedHtml, theme);
+  const htmlContent = generateHtmlTemplate(title, renderedHtml);
   const downloadedFilename = downloadHtmlFile(htmlContent, validatedFilename);
   
   setStatus(`已导出 HTML：${downloadedFilename}`);
@@ -1013,7 +980,7 @@ function defaultMarkdown() {
 | 目录 | 自动生成文档目录 |
 | 导出 | 一键导出 HTML |
 | 图片 | 拖拽 / 粘贴自动插入 |
-| 主题 | 深色 / 浅色模式 |
+| 主题 | GitHub 风格白底阅读 |
 
 ## 代码高亮
 
@@ -1253,12 +1220,12 @@ document.addEventListener("keydown", (e) => {
 openBtn?.addEventListener("click", openMarkdownFile);
 saveBtn?.addEventListener("click", saveMarkdownFile);
 exportHtmlBtn?.addEventListener("click", exportHtmlFile);
-themeBtn?.addEventListener("click", toggleTheme);
 fontSizeBtn?.addEventListener("click", toggleFontSize);
 newBtn?.addEventListener("click", newDocument);
 
 // 布局控制事件
 sidebarToggle?.addEventListener("click", toggleSidebar);
+previewSidebarToggle?.addEventListener("click", toggleSidebar);
 closeEditorBtn?.addEventListener("click", () => closePane('editor'));
 closePreviewBtn?.addEventListener("click", () => closePane('preview'));
 
@@ -1338,7 +1305,6 @@ window.addEventListener('beforeunload', (e) => {
 /**
  * 初始化
  */
-restoreTheme();
 restoreFontSize();
 restore();
 restoreLayoutState();
@@ -1356,6 +1322,7 @@ function loadFileContent(content, filename) {
   lastSavedContent = content;
   isDirty = false;
   resetTocState();
+  showPreviewOnly();
   renderMarkdown(true);
   updateStats();
   persist();

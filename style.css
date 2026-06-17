@@ -1,41 +1,36 @@
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: normal;
-  font-weight: 400 700;
-  font-display: swap;
-  src: url('./fonts/jetbrains-mono.woff2') format('woff2');
-}
-
 /* ============================================
-   Minimalist Document — Clean Flat Design
+   GitHub Document — Clean Flat Design
    ============================================ */
 
 :root {
-  --bg-root: #1a1b1e;
-  --bg-surface: #1f2024;
-  --bg-inset: #161719;
-  --bg-hover: #25262a;
+  --bg-root: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-inset: #f6f8fa;
+  --bg-hover: #f6f8fa;
 
-  --text-primary: #e4ddd2;
-  --text-secondary: #9d9385;
-  --text-tertiary: #6b6359;
-  --text-inverse: #1a1b1e;
+  --text-primary: #24292f;
+  --text-secondary: #57606a;
+  --text-tertiary: #6e7781;
+  --text-inverse: #ffffff;
 
-  --accent: #c9a96e;
-  --accent-hover: #d4b579;
-  --accent-muted: rgba(201, 169, 110, 0.1);
+  --accent: #0969da;
+  --accent-hover: #0757b8;
+  --accent-muted: rgba(9, 105, 218, 0.1);
 
-  --border: rgba(255, 255, 255, 0.08);
-  --border-light: rgba(255, 255, 255, 0.05);
+  --border: #d0d7de;
+  --border-light: #d8dee4;
 
-  --danger: #d4726a;
+  --danger: #cf222e;
 
-  --editor-bg: #151618;
-  --editor-cursor: #c9a96e;
-  --editor-selection: rgba(201, 169, 110, 0.2);
+  --editor-bg: #ffffff;
+  --editor-cursor: #0969da;
+  --editor-selection: rgba(9, 105, 218, 0.18);
 
-  --preview-bg: #1e1f23;
-  --sidebar-bg: #1c1d21;
+  --preview-bg: #ffffff;
+  --sidebar-bg: #f6f8fa;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
 
   --radius: 2px;
 
@@ -52,30 +47,6 @@
   --grid-preview: 1fr;
 
   --header-height: 40px;
-}
-
-html[data-theme="light"] {
-  --bg-root: #f8f6f1;
-  --bg-surface: #f0ede6;
-  --bg-inset: #eae6dd;
-  --bg-hover: #e5e0d5;
-
-  --text-primary: #2c2416;
-  --text-secondary: #6b5e48;
-  --text-tertiary: #9d8f77;
-  --text-inverse: #f8f6f1;
-
-  --accent: #8b6914;
-  --accent-hover: #a07818;
-  --accent-muted: rgba(139, 105, 20, 0.08);
-
-  --border: rgba(0, 0, 0, 0.08);
-  --border-light: rgba(0, 0, 0, 0.05);
-
-  --editor-bg: #fdfbf7;
-  --editor-selection: rgba(139, 105, 20, 0.15);
-  --preview-bg: #f5f2ea;
-  --sidebar-bg: #ede8de;
 }
 
 html[data-font-size="medium"] {
@@ -107,7 +78,7 @@ body {
   height: 100%;
   background: var(--bg-root);
   color: var(--text-primary);
-  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+  font-family: var(--font-ui);
   font-size: var(--fs-ui);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -491,7 +462,7 @@ body { overflow: hidden; }
   background: var(--editor-bg);
   color: var(--text-primary);
   padding: 18px 20px;
-  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: var(--fs-editor);
   line-height: 1.75;
   caret-color: var(--editor-cursor);
@@ -587,7 +558,7 @@ body { overflow: hidden; }
 .markdown-body pre::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 .markdown-body code {
-  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.88em;
 }
 

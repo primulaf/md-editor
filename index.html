@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>md.</title>
-  <meta name="description" content="离线 Markdown 编辑器 — 实时预览、深色模式、图片粘贴、HTML 导出">
+  <meta name="description" content="GitHub 风格离线 Markdown 编辑器 — 实时预览、目录导航、图片粘贴、HTML 导出">
   <meta name="author" content="md.">
 
   <!-- highlight.js 代码高亮主题（app.js 会动态切换这个链接） -->
@@ -33,7 +33,6 @@
         <button id="openBtn" type="button">打开 .md</button>
         <button id="saveBtn" type="button" class="primary">保存 .md</button>
         <button id="exportHtmlBtn" type="button">导出 HTML</button>
-        <button id="themeBtn" type="button">切换深色模式</button>
         <button id="fontSizeBtn" type="button">字号：小</button>
         <button id="newBtn" type="button">新建</button>
       </div>
@@ -71,7 +70,7 @@
         <div class="panel-title">功能</div>
         <ul>
           <li>实时预览 &amp; 同步滚动</li>
-          <li>深浅色模式切换</li>
+          <li>GitHub 风格白底阅读</li>
           <li>HTML 导出</li>
           <li>图片拖拽 / 粘贴</li>
           <li>文档统计</li>
@@ -116,6 +115,7 @@
     <!-- 右侧预览区 -->
     <section class="preview-pane">
       <div class="pane-header">
+        <button id="previewSidebarToggle" class="pane-btn" type="button">侧栏</button>
         <span class="pane-title">预览区</span>
         <div class="pane-header-right">
           <span id="status" class="muted">已就绪</span>

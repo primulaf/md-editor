@@ -1,12 +1,12 @@
 # md.
 
-离线 Markdown 编辑器 Chrome 扩展。简洁扁平化设计，支持实时预览、深色模式、目录导航、图片粘贴、HTML 导出，可直接打开本地 .md 文件。
+离线 Markdown 编辑器 Chrome 扩展。GitHub 风格白底阅读界面，支持实时预览、目录导航、图片粘贴、HTML 导出，可直接打开本地 .md 文件。
 
 ## 功能
 
 - **实时编辑与预览** — 三栏布局，编辑区和预览区同步滚动
 - **目录自动生成** — 单击跳转，滚动时高亮当前章节
-- **深色 / 浅色模式** — 暖色调暗色默认，可切换浅色
+- **GitHub 风格界面** — 白底黑字、系统字体、默认预览优先
 - **三档字号** — 小 / 中 / 大，侧边栏和预览区跟随缩放
 - **图片处理** — 支持粘贴、拖拽图片，自动转为 DataURL 内嵌
 - **HTML 导出** — 完整自包含 HTML 文件，保留样式和代码高亮
@@ -61,7 +61,7 @@ npx esbuild --bundle --format=iife --global-name=hljs _hljs_bundle.cjs --outfile
 - **Markdown 渲染**：[markdown-it](https://github.com/markdown-it/markdown-it) + markdown-it-anchor
 - **XSS 防护**：[DOMPurify](https://github.com/cure53/DOMPurify)
 - **代码高亮**：[highlight.js](https://highlightjs.org/)（精简子集，9 种语言）
-- **字体**：JetBrains Mono（本地 woff2）
+- **字体**：GitHub 风格系统字体栈，编辑区与代码块使用系统等宽字体
 - **扩展框架**：Chrome Extension Manifest V3
 
 ## 项目结构
