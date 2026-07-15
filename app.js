@@ -58,6 +58,11 @@ let lastHeadingHash = '';
 let isPageVisible = true;
 let dirtyWhileHidden = false;
 let cachedHeadings = [];
+let tocCollapseState = new Map();
+let tocParentById = new Map();
+let tocItemById = new Map();
+let tocLinkById = new Map();
+let activeTocId = '';
 let resizePending = false;
 let lastSavedContent = null;
 let isDirty = false;
@@ -224,17 +229,17 @@ function setStatus(text) {
 }
 
 function updateDirtyIndicator() {
-  if (!statusEl || !fileNameEl) return;
   if (isDirty) {
-    statusEl.textContent = '未保存 · 编辑区更改不会同步到源文件 · ^S 保存下载';
-    statusEl.style.color = 'var(--danger)';
-    if (!currentFileName.endsWith(' *')) {
-      fileNameEl.textContent = currentFileName + ' *';
+    if (statusEl) {
+      statusEl.textContent = '未保存 · 编辑区更改不会同步到源文件 · ^S 保存下载';
+      statusEl.style.color = 'var(--danger)';
     }
   } else {
-    statusEl.style.color = '';
-    fileNameEl.textContent = currentFileName;
+    if (statusEl) statusEl.style.color = '';
   }
+
+  if (fileNameEl) fileNameEl.textContent = isDirty ? `${currentFileName} *` : currentFileName;
+  document.title = `${isDirty ? '* ' : ''}${currentFileName || '未命名文档.md'} - md.`;
 }
 
 /**
@@ -324,6 +329,7 @@ function renderMarkdown(force) {
 
       preview.innerHTML = safeHtml;
       refreshHeadings();
+      ensureHeadingIds();
 
       // 所有外链新窗口打开
       preview.querySelectorAll("a[href]").forEach((a) => {
@@ -361,80 +367,201 @@ function resetTocState() {
   lastHeadingHash = '';
   cachedHeadings = [];
   lastRenderedSource = null;
+  tocCollapseState = new Map();
+  tocParentById = new Map();
+  tocItemById = new Map();
+  tocLinkById = new Map();
+  activeTocId = '';
 }
 
 /** 计算标题结构的快速哈希，用于判断 TOC 是否需要重建 */
 function computeHeadingHash() {
-  const source = editor.value || "";
-  const matches = source.match(/^#{1,6}\s+/gm);
-  return matches ? matches.join('|') : '';
+  return JSON.stringify(Array.from(cachedHeadings, (heading) => [
+    heading.tagName,
+    heading.id,
+    getHeadingPlainText(heading)
+  ]));
+}
+
+/** 每次预览重建后都恢复稳定锚点，确保现有目录链接仍指向新节点 */
+function ensureHeadingIds() {
+  const usedIds = new Set();
+
+  Array.from(cachedHeadings).forEach((heading, index) => {
+    const text = getHeadingPlainText(heading);
+    const baseId = (heading.id || '').trim() || slugify(text) || `heading-${index + 1}`;
+    let uniqueId = baseId;
+    let counter = 2;
+
+    while (usedIds.has(uniqueId)) {
+      uniqueId = `${baseId}-${counter}`;
+      counter += 1;
+    }
+
+    heading.id = uniqueId;
+    usedIds.add(uniqueId);
+  });
 }
 
 /**
  * 生成目录
  */
 function buildToc() {
-  const headings = preview.querySelectorAll("h1, h2, h3, h4, h5, h6");
+  const headings = Array.from(preview.querySelectorAll("h1, h2, h3, h4, h5, h6"));
 
   if (!headings.length) {
     toc.innerHTML = `<div class="toc-empty">当前文档还没有标题</div>`;
+    tocCollapseState = new Map();
+    tocParentById = new Map();
+    tocItemById = new Map();
+    tocLinkById = new Map();
+    activeTocId = '';
     return;
   }
 
-  const usedIds = new Set();
-  const items = [];
+  const roots = [];
+  const stack = [];
+  const previousCollapseState = tocCollapseState;
+  const nextCollapseState = new Map();
+  const nextItemById = new Map();
+  const nextLinkById = new Map();
+  tocParentById = new Map();
 
-  headings.forEach((heading, index) => {
-    let id = (heading.id || "").trim();
+  headings.forEach((heading) => {
+    const id = heading.id;
     const text = getHeadingPlainText(heading);
 
-    if (!id) {
-      id = slugify(text) || `heading-${index + 1}`;
-    }
-
-    // 保证唯一
-    let uniqueId = id;
-    let counter = 2;
-    while (usedIds.has(uniqueId)) {
-      uniqueId = `${id}-${counter}`;
-      counter += 1;
-    }
-
-    heading.id = uniqueId;
-    usedIds.add(uniqueId);
-
     const level = Number(heading.tagName.replace("H", ""));
+    const node = { id, text, level, children: [] };
 
-    items.push(`
-      <div class="toc-item level-${level}">
-        <a
-          href="#${encodeURIComponent(uniqueId)}"
-          class="toc-link"
-          data-target="${escapeHtml(uniqueId)}"
-          title="${escapeHtml(text)}"
-        >
-          ${escapeHtml(text)}
-        </a>
-      </div>
-    `);
+    while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+    const parent = stack[stack.length - 1];
+    if (parent) {
+      parent.children.push(node);
+      tocParentById.set(node.id, parent.id);
+    } else {
+      roots.push(node);
+    }
+    stack.push(node);
   });
 
-  toc.innerHTML = items.join("");
+  function renderNodes(nodes) {
+    const list = document.createElement('ul');
+    list.className = 'toc-list';
+
+    nodes.forEach((node) => {
+      const item = document.createElement('li');
+      item.className = `toc-item level-${node.level}`;
+      item.dataset.nodeId = node.id;
+      nextItemById.set(node.id, item);
+
+      const row = document.createElement('div');
+      row.className = 'toc-row';
+
+      if (node.children.length) {
+        const collapsed = previousCollapseState.has(node.id)
+          ? previousCollapseState.get(node.id)
+          : node.level >= 2;
+        nextCollapseState.set(node.id, collapsed);
+
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'toc-toggle';
+        toggle.dataset.target = node.id;
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+        toggle.setAttribute('aria-label', `${collapsed ? '展开' : '折叠'} ${node.text}`);
+        toggle.title = `${collapsed ? '展开' : '折叠'} ${node.text}`;
+        row.appendChild(toggle);
+
+        const children = renderNodes(node.children);
+        children.classList.add('toc-children');
+        children.hidden = collapsed;
+        item.append(row, children);
+      } else {
+        const spacer = document.createElement('span');
+        spacer.className = 'toc-toggle-spacer';
+        spacer.setAttribute('aria-hidden', 'true');
+        row.appendChild(spacer);
+        item.appendChild(row);
+      }
+
+      const link = document.createElement('a');
+      link.href = `#${encodeURIComponent(node.id)}`;
+      link.className = 'toc-link';
+      link.dataset.target = node.id;
+      link.title = node.text;
+      link.textContent = node.text;
+      nextLinkById.set(node.id, link);
+      row.appendChild(link);
+      list.appendChild(item);
+    });
+
+    return list;
+  }
+
+  const tree = renderNodes(roots);
+  tocCollapseState = nextCollapseState;
+  tocItemById = nextItemById;
+  tocLinkById = nextLinkById;
+  activeTocId = '';
+  toc.replaceChildren(tree);
+}
+
+function setTocNodeCollapsed(nodeId, collapsed) {
+  const item = tocItemById.get(nodeId);
+  if (!item) return;
+
+  const toggle = item.querySelector(':scope > .toc-row > .toc-toggle');
+  const children = item.querySelector(':scope > .toc-children');
+  if (!toggle || !children) return;
+
+  tocCollapseState.set(nodeId, collapsed);
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+  const label = item.querySelector(':scope > .toc-row > .toc-link')?.textContent || '';
+  toggle.setAttribute('aria-label', `${collapsed ? '展开' : '折叠'} ${label}`);
+  toggle.title = `${collapsed ? '展开' : '折叠'} ${label}`;
+  children.hidden = collapsed;
+}
+
+function expandTocAncestors(activeId) {
+  let parentId = tocParentById.get(activeId);
+  while (parentId) {
+    setTocNodeCollapsed(parentId, false);
+    parentId = tocParentById.get(parentId);
+  }
+}
+
+function scrollTocLinkIntoView(link) {
+  if (!link) return;
+
+  const tocRect = toc.getBoundingClientRect();
+  const linkRect = link.getBoundingClientRect();
+  const visibleTop = tocRect.top + toc.clientTop;
+  const visibleBottom = visibleTop + toc.clientHeight;
+
+  if (linkRect.top < visibleTop) {
+    toc.scrollTop -= visibleTop - linkRect.top;
+  } else if (linkRect.bottom > visibleBottom) {
+    toc.scrollTop += linkRect.bottom - visibleBottom;
+  }
 }
 
 /**
  * 高亮当前目录项
  */
 function highlightActiveToc(activeId) {
-  let activeLink = null;
-  toc.querySelectorAll(".toc-link").forEach((link) => {
-    const isActive = link.dataset.target === activeId;
-    link.classList.toggle("active", isActive);
-    if (isActive) activeLink = link;
-  });
+  expandTocAncestors(activeId);
+  if (activeTocId && activeTocId !== activeId) {
+    tocLinkById.get(activeTocId)?.classList.remove('active');
+  }
+
+  const activeLink = tocLinkById.get(activeId) || null;
+  activeLink?.classList.add('active');
+  activeTocId = activeLink ? activeId : '';
+
   // 自动滚动目录面板，确保激活项可见
   if (activeLink) {
-    activeLink.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    scrollTocLinkIntoView(activeLink);
   }
 }
 
@@ -501,7 +628,7 @@ function restore() {
     fileNameEl.textContent = currentFileName;
   }
 
-  if (cachedContent && cachedContent.trim()) {
+  if (cachedContent !== null) {
     editor.value = cachedContent;
   } else {
     editor.value = defaultMarkdown();
@@ -651,13 +778,20 @@ function initResizeHandle() {
 /**
  * 字号控制
  */
-const FONT_SIZE_TIERS = ['small', 'medium', 'large'];
-const FONT_SIZE_LABELS = { small: '字号：小', medium: '字号：中', large: '字号：大' };
+const FONT_SIZE_TIERS = ['small', 'medium', 'large', 'xlarge', 'xxlarge'];
+const FONT_SIZE_LABELS = {
+  small: '字号：小',
+  medium: '字号：中',
+  large: '字号：大',
+  xlarge: '字号：特大',
+  xxlarge: '字号：超大'
+};
 
 function applyFontSize(tier) {
-  document.documentElement.setAttribute('data-font-size', tier === 'small' ? '' : tier);
-  if (fontSizeBtn) fontSizeBtn.textContent = FONT_SIZE_LABELS[tier] || '字号：小';
-  localStorage.setItem(STORAGE_FONT_SIZE_KEY, tier);
+  const validTier = FONT_SIZE_TIERS.includes(tier) ? tier : 'small';
+  document.documentElement.setAttribute('data-font-size', validTier === 'small' ? '' : validTier);
+  if (fontSizeBtn) fontSizeBtn.textContent = FONT_SIZE_LABELS[validTier];
+  localStorage.setItem(STORAGE_FONT_SIZE_KEY, validTier);
 }
 
 function toggleFontSize() {
@@ -690,9 +824,11 @@ fileInput.addEventListener("change", () => {
     if (fileNameEl) fileNameEl.textContent = currentFileName;
     lastSavedContent = editor.value;
     isDirty = false;
+    updateDirtyIndicator();
     resetTocState();
     showPreviewOnly();
     renderMarkdown(true);
+    updateStats();
     setStatus(`已打开：${currentFileName}`);
     fileInput.value = "";
   };
@@ -954,12 +1090,14 @@ function newDocument() {
   if (!ok) return;
 
   currentFileName = "未命名文档.md";
-  if (fileNameEl) fileNameEl.textContent = currentFileName;
   editor.value = defaultMarkdown();
   lastSavedContent = editor.value;
   isDirty = false;
+  updateDirtyIndicator();
   resetTocState();
   renderMarkdown(true);
+  updateStats();
+  persist();
   setStatus("已新建文档");
 }
 
@@ -977,7 +1115,7 @@ function defaultMarkdown() {
 |---|---|
 | 编辑 | 实时 Markdown 编辑 |
 | 预览 | 同步渲染预览 |
-| 目录 | 自动生成文档目录 |
+| 目录 | 折叠浏览与自动定位 |
 | 导出 | 一键导出 HTML |
 | 图片 | 拖拽 / 粘贴自动插入 |
 | 主题 | GitHub 风格白底阅读 |
@@ -1154,6 +1292,13 @@ function syncPreviewToEditor() {
  * 目录点击：事件委托（只绑定一次）
  */
 toc.addEventListener("click", (e) => {
+  const toggle = e.target.closest('button.toc-toggle');
+  if (toggle) {
+    const nodeId = toggle.dataset.target || '';
+    if (nodeId) setTocNodeCollapsed(nodeId, toggle.getAttribute('aria-expanded') === 'true');
+    return;
+  }
+
   const link = e.target.closest("a.toc-link");
   if (!link) return;
 
@@ -1184,12 +1329,17 @@ toc.addEventListener("click", (e) => {
     behavior: "smooth"
   });
 
+  const previewMax = preview.scrollHeight - preview.clientHeight;
+  const editorMax = editor.scrollHeight - editor.clientHeight;
+  const editorTarget = previewMax > 0 ? (targetScrollTop / previewMax) * editorMax : 0;
+  editor.scrollTo({ top: editorTarget, behavior: 'smooth' });
+
   setTimeout(() => { isTocScrolling = false; }, 800);
 
   history.replaceState(null, "", `#${encodeURIComponent(rawTargetId)}`);
   highlightActiveToc(rawTargetId);
   // 确保被点击的目录项在面板中可见
-  link.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  scrollTocLinkIntoView(link);
 });
 
 /**
@@ -1309,8 +1459,9 @@ restoreFontSize();
 restore();
 restoreLayoutState();
 updateLayout();
-if (fileNameEl) fileNameEl.textContent = currentFileName;
+updateDirtyIndicator();
 renderMarkdown(true);
+updateStats();
 setStatus("已就绪");
 
 // 文件关联启动：通过 URL 参数 ?file=<nonce> 识别来自 content script 的加载
@@ -1321,6 +1472,7 @@ function loadFileContent(content, filename) {
   if (fileNameEl) fileNameEl.textContent = currentFileName;
   lastSavedContent = content;
   isDirty = false;
+  updateDirtyIndicator();
   resetTocState();
   showPreviewOnly();
   renderMarkdown(true);

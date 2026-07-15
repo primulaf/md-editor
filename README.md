@@ -2,24 +2,27 @@
 
 离线 Markdown 编辑器 Chrome 扩展。GitHub 风格白底阅读界面，支持实时预览、目录导航、图片粘贴、HTML 导出，可直接打开本地 .md 文件。
 
+当前稳定版本：**v1.4.0**。可从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载扩展压缩包，详细改动见 [v1.4.0 版本说明](docs/releases/v1.4.0.md)。
+
 ## 功能
 
-- **实时编辑与预览** — 三栏布局，编辑区和预览区同步滚动
-- **目录自动生成** — 单击跳转，滚动时高亮当前章节
+- **实时编辑与预览** — 三栏布局，编辑区和预览区同步滚动，默认优先展示预览
+- **可折叠目录** — 按标题层级展开或收起，单击跳转，滚动时自动高亮当前章节
 - **GitHub 风格界面** — 白底黑字、系统字体、默认预览优先
-- **三档字号** — 小 / 中 / 大，侧边栏和预览区跟随缩放
+- **五档字号** — 小 / 中 / 大 / 特大 / 超大，侧边栏、编辑区和预览区同步缩放
 - **图片处理** — 支持粘贴、拖拽图片，自动转为 DataURL 内嵌
 - **HTML 导出** — 完整自包含 HTML 文件，保留样式和代码高亮
 - **拖拽 .md 文件** — 将 .md 文件拖入编辑器直接加载
 - **双击 .md 关联打开** — 设置后双击 .md 文件自动用 Chrome 打开渲染
 - **未保存提醒** — 关闭标签页时检测未保存更改
+- **文件名标签页** — 多个文档同时打开时直接通过标签页标题区分
 - **代码高亮** — 支持 JS / TS / Python / Bash / SQL / HTML / CSS / JSON
 
 ## 安装
 
 ### 方式一：加载已解压的扩展
 
-1. 下载 `md-editor-extension.zip` 并解压
+1. 从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载 `md-editor-extension.zip` 并解压
 2. 打开 Chrome，地址栏输入 `chrome://extensions`
 3. 开启右上角「**开发者模式**」
 4. 点击「**加载已解压的扩展程序**」
@@ -73,6 +76,7 @@ npx esbuild --bundle --format=iife --global-name=hljs _hljs_bundle.cjs --outfile
 ├── index.html         # 主页面
 ├── app.js             # 全部业务逻辑
 ├── style.css          # 样式系统
+├── docs/              # 迭代 Spec 与实施计划
 ├── icons/             # 扩展图标 (16/48/128)
 ├── lib/               # 第三方依赖（本地化）
 │   ├── markdown-it.min.js

@@ -29,7 +29,7 @@
         <p>编辑 &middot; 预览 &middot; 导出</p>
       </div>
 
-      <div class="toolbar">
+      <div class="toolbar" role="toolbar" aria-label="文档操作">
         <button id="openBtn" type="button">打开 .md</button>
         <button id="saveBtn" type="button" class="primary">保存 .md</button>
         <button id="exportHtmlBtn" type="button">导出 HTML</button>
@@ -39,13 +39,13 @@
 
       <div class="toc-panel">
         <div class="panel-title">目录</div>
-        <nav id="toc" class="toc">
+        <nav id="toc" class="toc" aria-label="文档目录">
           <div class="toc-empty">当前文档还没有标题</div>
         </nav>
       </div>
 
       <div class="stats-panel">
-        <div class="panel-title">统计信息</div>
+        <div class="panel-title">统计</div>
         <div class="stats-grid">
           <div class="stat-item">
             <div class="stat-label">总字数</div>
@@ -64,18 +64,6 @@
             <div id="statReadTime" class="stat-value">0 分钟</div>
           </div>
         </div>
-      </div>
-
-      <div class="tips">
-        <div class="panel-title">功能</div>
-        <ul>
-          <li>实时预览 &amp; 同步滚动</li>
-          <li>GitHub 风格白底阅读</li>
-          <li>HTML 导出</li>
-          <li>图片拖拽 / 粘贴</li>
-          <li>文档统计</li>
-          <li>目录自动生成</li>
-        </ul>
       </div>
     </aside>
 

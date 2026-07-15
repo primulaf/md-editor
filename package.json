@@ -1,17 +1,17 @@
 {
   "name": "md-editor",
-  "version": "1.0.0",
-  "description": "",
+  "version": "1.4.0",
+  "description": "GitHub 风格离线 Markdown 编辑器 Chrome 扩展",
   "main": "app.js",
   "directories": {
     "lib": "lib"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --check app.js && node --check background.js && node --check content.js"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "dompurify": "^3.1.6",
     "highlight.js": "^11.9.0",
