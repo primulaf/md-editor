@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>md.</title>
-  <meta name="description" content="GitHub 风格离线 Markdown 编辑器 — 实时预览、目录导航、图片粘贴、HTML 导出">
+  <meta name="description" content="GitHub 风格离线 Markdown 阅读与编辑工具 — 目录导航、按需编辑、源文件保存和 HTML 导出">
   <meta name="author" content="md.">
 
   <!-- highlight.js 代码高亮主题（app.js 会动态切换这个链接） -->
@@ -19,19 +19,20 @@
 </head>
 <body>
   <!-- 跳过导航链接（仅对键盘和屏幕阅读器可见） -->
-  <a href="#editor" class="skip-link visually-hidden">跳到编辑区</a>
+  <a id="skipLink" href="#preview" class="skip-link visually-hidden">跳到预览区</a>
   
   <div class="app">
     <!-- 左侧边栏 -->
     <aside class="sidebar" role="complementary" aria-label="工具面板">
       <div class="brand">
         <h1>md.</h1>
-        <p>编辑 &middot; 预览 &middot; 导出</p>
+        <p>阅读 &middot; 编辑 &middot; 导出</p>
       </div>
 
       <div class="toolbar" role="toolbar" aria-label="文档操作">
-        <button id="openBtn" type="button">打开 .md</button>
-        <button id="saveBtn" type="button" class="primary">保存 .md</button>
+        <button id="openBtn" type="button">打开</button>
+        <button id="saveBtn" type="button" class="primary edit-only">保存</button>
+        <button id="saveAsBtn" type="button" class="edit-only">另存为</button>
         <button id="exportHtmlBtn" type="button">导出 HTML</button>
         <button id="fontSizeBtn" type="button">字号：小</button>
         <button id="newBtn" type="button">新建</button>
@@ -78,11 +79,6 @@
         </div>
       </div>
 
-      <div class="editor-toolbar">
-        <span class="hint">^S 保存 &nbsp; ^E 导出 HTML &nbsp; ^O 打开文件</span>
-        <span class="hint">拖拽或粘贴图片到编辑区</span>
-      </div>
-
       <textarea id="editor" spellcheck="false"></textarea>
 
       <div class="pane-restore-wrap">
@@ -104,10 +100,14 @@
     <section class="preview-pane">
       <div class="pane-header">
         <button id="previewSidebarToggle" class="pane-btn" type="button">侧栏</button>
-        <span class="pane-title">预览区</span>
+        <div class="pane-identity">
+          <span class="pane-title">预览区</span>
+          <span id="previewFileName" class="muted">未命名文档.md</span>
+        </div>
         <div class="pane-header-right">
-          <span id="status" class="muted">已就绪</span>
-          <button id="closePreviewBtn" class="pane-btn pane-close-btn" type="button" title="隐藏预览区">×</button>
+          <span id="status" class="muted" aria-live="polite">阅读模式</span>
+          <button id="editModeBtn" class="pane-btn mode-toggle" type="button" aria-pressed="false">编辑文档</button>
+          <button id="closePreviewBtn" class="pane-btn pane-close-btn edit-only" type="button" title="隐藏预览区">×</button>
         </div>
       </div>
       <div id="preview" class="preview markdown-body"></div>
@@ -135,6 +135,20 @@
       <div class="filename-dialog-actions">
         <button type="button" id="filenameCancelBtn" class="filename-btn">取消</button>
         <button type="button" id="filenameConfirmBtn" class="filename-btn primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="sourceAccessDialog" class="filename-dialog" role="dialog" aria-modal="true" aria-labelledby="sourceAccessDialogTitle" hidden>
+    <div class="filename-dialog-content">
+      <h3 id="sourceAccessDialogTitle" class="filename-dialog-title">保存到源文件</h3>
+      <div class="filename-dialog-body">
+        <p class="dialog-message">当前文件由浏览器直接打开，扩展尚未获得写入权限。请选择原文件以启用直接保存，或另存为新文件。</p>
+      </div>
+      <div class="filename-dialog-actions source-dialog-actions">
+        <button type="button" id="sourceAccessCancelBtn" class="filename-btn">取消</button>
+        <button type="button" id="sourceAccessSaveAsBtn" class="filename-btn">另存为</button>
+        <button type="button" id="sourceAccessConnectBtn" class="filename-btn primary">选择原文件</button>
       </div>
     </div>
   </div>

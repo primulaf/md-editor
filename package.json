@@ -1,13 +1,13 @@
 {
   "name": "md-editor",
-  "version": "1.4.0",
-  "description": "GitHub 风格离线 Markdown 编辑器 Chrome 扩展",
+  "version": "1.5.0",
+  "description": "GitHub 风格离线 Markdown 阅读与编辑 Chrome 扩展",
   "main": "app.js",
   "directories": {
     "lib": "lib"
   },
   "scripts": {
-    "test": "node --check app.js && node --check background.js && node --check content.js"
+    "test": "node --check app.js && node --check background.js && node --check content.js && node scripts/validate-project.mjs"
   },
   "keywords": [],
   "author": "",

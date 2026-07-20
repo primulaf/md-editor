@@ -23,6 +23,7 @@ sessionStorage/
 dist/
 build/
 node_modules/
+md-editor-extension.zip
 
 # 环境变量文件
 .env

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "md.",
-  "version": "1.4.0",
-  "description": "GitHub 风格离线 Markdown 编辑器，支持可折叠目录、五档字号、实时预览、HTML 导出和直接打开 .md 文件",
+  "version": "1.5.0",
+  "description": "GitHub 风格离线 Markdown 阅读与编辑工具，支持按需编辑、源文件保存、另存为、可折叠目录和 HTML 导出",
   "action": {
     "default_title": "打开 md. 编辑器"
   },

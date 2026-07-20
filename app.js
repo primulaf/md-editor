@@ -4,10 +4,14 @@ const toc = document.getElementById("toc");
 const fileInput = document.getElementById("fileInput");
 const openBtn = document.getElementById("openBtn");
 const saveBtn = document.getElementById("saveBtn");
+const saveAsBtn = document.getElementById("saveAsBtn");
 const exportHtmlBtn = document.getElementById("exportHtmlBtn");
 const fontSizeBtn = document.getElementById("fontSizeBtn");
 const newBtn = document.getElementById("newBtn");
+const editModeBtn = document.getElementById("editModeBtn");
+const skipLink = document.getElementById("skipLink");
 const fileNameEl = document.getElementById("fileName");
+const previewFileNameEl = document.getElementById("previewFileName");
 const statusEl = document.getElementById("status");
 
 const statChars = document.getElementById("statChars");
@@ -21,12 +25,35 @@ const filenameInput = document.getElementById("filenameInput");
 const filenameCancelBtn = document.getElementById("filenameCancelBtn");
 const filenameConfirmBtn = document.getElementById("filenameConfirmBtn");
 const filenameDialogTitle = document.getElementById("filenameDialogTitle");
+const sourceAccessDialog = document.getElementById("sourceAccessDialog");
+const sourceAccessCancelBtn = document.getElementById("sourceAccessCancelBtn");
+const sourceAccessSaveAsBtn = document.getElementById("sourceAccessSaveAsBtn");
+const sourceAccessConnectBtn = document.getElementById("sourceAccessConnectBtn");
 
 const IS_MAC = navigator.platform.toUpperCase().includes('MAC');
 const STORAGE_KEY = "md-editor-content";
 const STORAGE_FILE_NAME_KEY = "md-editor-file-name";
+const STORAGE_BASELINE_KEY = "md-editor-last-saved-content";
+const STORAGE_SOURCE_KIND_KEY = "md-editor-source-kind";
 const STORAGE_FONT_SIZE_KEY = "md-editor-font-size";
 const LAYOUT_STORAGE_KEY = "md-editor-layout";
+
+const SOURCE_KIND = Object.freeze({
+  NEW: 'new',
+  LINKED: 'linked',
+  UNLINKED: 'unlinked'
+});
+
+const MARKDOWN_FILE_OPTIONS = {
+  id: 'markdown-documents',
+  types: [{
+    description: 'Markdown 文档',
+    accept: {
+      'text/markdown': ['.md', '.markdown']
+    }
+  }],
+  excludeAcceptAllOption: false
+};
 
 let currentFileName = "未命名文档.md";
 
@@ -66,6 +93,13 @@ let activeTocId = '';
 let resizePending = false;
 let lastSavedContent = null;
 let isDirty = false;
+let isEditing = false;
+let sourceKind = SOURCE_KIND.NEW;
+let currentFileHandle = null;
+let sourceLastModified = null;
+let sourceLineEnding = '\n';
+let sourceHasBom = false;
+let fileSystemAccessDisabled = false;
 
 // 文件名对话框状态
 let pendingFilenameCallback = null;
@@ -136,8 +170,24 @@ function handleFilenameConfirm() {
  * 处理文件名取消
  */
 function handleFilenameCancel() {
+  const operationType = pendingOperationType;
   hideFilenameDialog();
-  setStatus(pendingOperationType === 'export' ? '已取消 HTML 导出' : '已取消保存');
+  setStatus(operationType === 'export' ? '已取消 HTML 导出' : '已取消保存');
+}
+
+function showSourceAccessDialog() {
+  if (!sourceAccessDialog) return;
+  sourceAccessDialog.hidden = false;
+  requestAnimationFrame(() => {
+    sourceAccessDialog.style.display = 'flex';
+    sourceAccessConnectBtn?.focus();
+  });
+}
+
+function hideSourceAccessDialog() {
+  if (!sourceAccessDialog) return;
+  sourceAccessDialog.hidden = true;
+  sourceAccessDialog.style.display = 'none';
 }
 
 /**
@@ -222,24 +272,46 @@ function debounce(fn, delay = 120) {
 /**
  * 设置状态
  */
-function setStatus(text) {
+function setStatus(text, tone = '') {
   if (statusEl) {
     statusEl.textContent = text;
+    if (tone) {
+      statusEl.dataset.tone = tone;
+    } else {
+      delete statusEl.dataset.tone;
+    }
   }
 }
 
 function updateDirtyIndicator() {
   if (isDirty) {
-    if (statusEl) {
-      statusEl.textContent = '未保存 · 编辑区更改不会同步到源文件 · ^S 保存下载';
-      statusEl.style.color = 'var(--danger)';
+    if (sourceKind === SOURCE_KIND.LINKED) {
+      setStatus('未保存 · 可直接保存', 'danger');
+    } else if (sourceKind === SOURCE_KIND.NEW) {
+      setStatus('未保存 · 首次保存将选择位置', 'danger');
+    } else {
+      setStatus('未保存 · 保存时需要选择源文件', 'danger');
     }
+  } else if (!isEditing) {
+    setStatus('阅读模式');
+  } else if (sourceKind === SOURCE_KIND.LINKED) {
+    setStatus('编辑模式 · 可直接保存', 'success');
+  } else if (sourceKind === SOURCE_KIND.NEW) {
+    setStatus('编辑模式 · 尚未保存为文件', 'notice');
   } else {
-    if (statusEl) statusEl.style.color = '';
+    setStatus('编辑模式 · 保存时需要选择源文件', 'notice');
   }
 
   if (fileNameEl) fileNameEl.textContent = isDirty ? `${currentFileName} *` : currentFileName;
-  document.title = `${isDirty ? '* ' : ''}${currentFileName || '未命名文档.md'} - md.`;
+  if (previewFileNameEl) {
+    previewFileNameEl.textContent = isDirty ? `${currentFileName} *` : currentFileName;
+  }
+  document.title = `${isDirty ? '* ' : ''}${currentFileName || '未命名文档.md'} · md.`;
+}
+
+function markDocumentChanged() {
+  isDirty = lastSavedContent === null || editor.value !== lastSavedContent;
+  updateDirtyIndicator();
 }
 
 /**
@@ -348,16 +420,16 @@ function renderMarkdown(force) {
       }
 
       updateActiveTocOnScroll();
-      setStatus(lastHighlightError ? "已渲染（部分代码高亮暂不可用）" : "已渲染");
-
-      // 追踪未保存更改：setStatus 之后调用，确保提醒不被覆盖
+      // 渲染成功后同步修改状态，避免渲染提示覆盖保存状态。
       if (lastSavedContent !== null) {
-        isDirty = (currentSource !== lastSavedContent);
-        updateDirtyIndicator();
+        markDocumentChanged();
+        if (lastHighlightError && !isDirty) {
+          setStatus('已渲染 · 部分代码高亮暂不可用', 'notice');
+        }
       }
     } catch (err) {
       console.error('渲染异常：', err);
-      setStatus('渲染失败，请刷新页面');
+      setStatus('渲染失败，请刷新页面', 'danger');
     }
   });
 }
@@ -612,16 +684,33 @@ function updateStats() {
  * 本地持久化
  */
 function persist() {
-  localStorage.setItem(STORAGE_KEY, editor.value);
-  localStorage.setItem(STORAGE_FILE_NAME_KEY, currentFileName);
+  sessionStorage.setItem(STORAGE_KEY, editor.value);
+  sessionStorage.setItem(STORAGE_FILE_NAME_KEY, currentFileName);
+  sessionStorage.setItem(STORAGE_BASELINE_KEY, lastSavedContent ?? '');
+  sessionStorage.setItem(
+    STORAGE_SOURCE_KIND_KEY,
+    sourceKind === SOURCE_KIND.NEW ? SOURCE_KIND.NEW : SOURCE_KIND.UNLINKED
+  );
 }
 
 /**
  * 恢复本地内容
  */
 function restore() {
-  const cachedContent = localStorage.getItem(STORAGE_KEY);
-  const cachedFileName = localStorage.getItem(STORAGE_FILE_NAME_KEY);
+  let cachedContent = sessionStorage.getItem(STORAGE_KEY);
+  let cachedFileName = sessionStorage.getItem(STORAGE_FILE_NAME_KEY);
+  let cachedBaseline = sessionStorage.getItem(STORAGE_BASELINE_KEY);
+  const cachedSourceKind = sessionStorage.getItem(STORAGE_SOURCE_KIND_KEY);
+
+  // v1.4.0 及更早版本将文档存在 localStorage；只迁移一次，随后按标签页隔离。
+  if (cachedContent === null) {
+    cachedContent = localStorage.getItem(STORAGE_KEY);
+    cachedFileName = localStorage.getItem(STORAGE_FILE_NAME_KEY);
+    cachedBaseline = cachedContent;
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_FILE_NAME_KEY);
+  }
+  const hasCachedDocument = cachedContent !== null;
 
   currentFileName = cachedFileName || "未命名文档.md";
   if (fileNameEl) {
@@ -633,8 +722,13 @@ function restore() {
   } else {
     editor.value = defaultMarkdown();
   }
-  lastSavedContent = editor.value;
-  isDirty = false;
+  lastSavedContent = cachedBaseline !== null ? cachedBaseline : editor.value;
+  sourceKind = cachedSourceKind === SOURCE_KIND.NEW || !hasCachedDocument
+    ? SOURCE_KIND.NEW
+    : SOURCE_KIND.UNLINKED;
+  currentFileHandle = null;
+  sourceLastModified = null;
+  isDirty = editor.value !== lastSavedContent;
 }
 
 /**
@@ -666,19 +760,22 @@ function restoreLayoutState() {
 function updateLayout() {
   const sidebarW = layout.sidebarVisible ? '280px' : '0px';
   sidebarEl.classList.toggle('collapsed', !layout.sidebarVisible);
+  app.classList.toggle('is-editing', isEditing);
 
   const bothVisible = layout.editorVisible && layout.previewVisible;
   const handleW = bothVisible ? '4px' : '0px';
 
   let editorW;
   if (!layout.editorVisible) {
-    editorW = '32px';
+    editorW = '0px';
   } else if (layout.previewVisible) {
     editorW = `${layout.splitRatio}fr`;
   } else {
     editorW = '1fr';
   }
   editorPane.classList.toggle('collapsed', !layout.editorVisible);
+  editorPane.inert = !layout.editorVisible;
+  editorPane.setAttribute('aria-hidden', String(!layout.editorVisible));
 
   let previewW;
   if (!layout.previewVisible) {
@@ -711,8 +808,8 @@ function toggleSidebar() {
  */
 function closePane(pane) {
   if (pane === 'editor') {
-    layout.editorVisible = false;
-    layout.previewVisible = true;
+    setEditingMode(false);
+    return;
   } else if (pane === 'preview') {
     layout.previewVisible = false;
     layout.editorVisible = true;
@@ -722,7 +819,8 @@ function closePane(pane) {
 
 function restorePane(pane) {
   if (pane === 'editor') {
-    layout.editorVisible = true;
+    setEditingMode(true, { focusEditor: true });
+    return;
   } else if (pane === 'preview') {
     layout.previewVisible = true;
   }
@@ -730,9 +828,44 @@ function restorePane(pane) {
 }
 
 function showPreviewOnly() {
+  isEditing = false;
   layout.editorVisible = false;
   layout.previewVisible = true;
   updateLayout();
+  if (editModeBtn) {
+    editModeBtn.textContent = '编辑文档';
+    editModeBtn.setAttribute('aria-pressed', 'false');
+  }
+  if (skipLink) {
+    skipLink.href = '#preview';
+    skipLink.textContent = '跳到预览区';
+  }
+  updateDirtyIndicator();
+}
+
+function setEditingMode(enabled, options = {}) {
+  isEditing = Boolean(enabled);
+  layout.editorVisible = isEditing;
+  layout.previewVisible = true;
+  updateLayout();
+
+  if (editModeBtn) {
+    editModeBtn.textContent = isEditing ? '完成编辑' : '编辑文档';
+    editModeBtn.setAttribute('aria-pressed', String(isEditing));
+  }
+  if (skipLink) {
+    skipLink.href = isEditing ? '#editor' : '#preview';
+    skipLink.textContent = isEditing ? '跳到编辑区' : '跳到预览区';
+  }
+
+  updateDirtyIndicator();
+  if (isEditing && options.focusEditor) {
+    requestAnimationFrame(() => editor.focus());
+  }
+}
+
+function toggleEditingMode() {
+  setEditingMode(!isEditing, { focusEditor: !isEditing });
 }
 
 /**
@@ -809,92 +942,311 @@ function restoreFontSize() {
 /**
  * 打开 .md 文件
  */
-function openMarkdownFile() {
-  fileInput.click();
+function supportsFilePicker(methodName) {
+  return !fileSystemAccessDisabled && typeof window[methodName] === 'function';
 }
 
-fileInput.addEventListener("change", () => {
-  const file = fileInput.files && fileInput.files[0];
-  if (!file) return;
+function confirmDocumentReplacement(action) {
+  if (!isDirty) return true;
+  return window.confirm(`当前文档有未保存修改。${action}将丢失这些修改，是否继续？`);
+}
 
-  const reader = new FileReader();
-  reader.onload = () => {
-    editor.value = typeof reader.result === "string" ? reader.result : "";
-    currentFileName = file.name || "未命名文档.md";
-    if (fileNameEl) fileNameEl.textContent = currentFileName;
-    lastSavedContent = editor.value;
-    isDirty = false;
-    updateDirtyIndicator();
-    resetTocState();
-    showPreviewOnly();
-    renderMarkdown(true);
-    updateStats();
-    setStatus(`已打开：${currentFileName}`);
-    fileInput.value = "";
-  };
-  reader.onerror = () => {
-    const error = reader.error;
-    let message = "文件读取失败";
-    if (error) {
-      if (error.name === "NotFoundError") {
-        message = "文件不存在或已被移动";
-      } else if (error.name === "SecurityError") {
-        message = "安全限制，无法读取文件";
-      } else if (error.name === "NotReadableError") {
-        message = "文件不可读（可能被其他程序占用）";
-      } else if (error.name === "EncodingError") {
-        message = "文件编码不支持（请使用 UTF-8 编码）";
-      }
+function isUserCancellation(error) {
+  return error && error.name === 'AbortError';
+}
+
+function isUnsupportedFileSystemAccess(error) {
+  return error?.name === 'SecurityError' || error?.name === 'NotSupportedError';
+}
+
+function reportFileError(error, action) {
+  if (isUserCancellation(error)) {
+    if (isDirty) {
+      updateDirtyIndicator();
+    } else {
+      setStatus(`已取消${action}`);
     }
-    setStatus(message);
-    fileInput.value = "";
+    return;
+  }
+
+  console.error(`${action}失败：`, error);
+  if (error?.name === 'NotAllowedError') {
+    setStatus(`未获得文件写入权限，${action}未完成`, 'danger');
+  } else if (error?.name === 'NotFoundError') {
+    setStatus(`文件不存在或已被移动，${action}未完成`, 'danger');
+  } else if (error?.name === 'NotReadableError') {
+    setStatus(`文件当前不可读，${action}未完成`, 'danger');
+  } else {
+    setStatus(`${action}失败，请重试`, 'danger');
+  }
+}
+
+async function readMarkdownFile(file) {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const hasBom = bytes.length >= 3
+    && bytes[0] === 0xEF
+    && bytes[1] === 0xBB
+    && bytes[2] === 0xBF;
+  const contentBytes = hasBom ? bytes.subarray(3) : bytes;
+  const decoded = new TextDecoder('utf-8').decode(contentBytes);
+  const lineEnding = decoded.includes('\r\n') ? '\r\n' : (decoded.includes('\r') ? '\r' : '\n');
+
+  return {
+    content: decoded.replace(/\r\n?/g, '\n'),
+    lineEnding,
+    hasBom
   };
-  reader.readAsText(file, "utf-8");
-});
+}
 
-/**
- * 实际保存 Markdown 文件（内部函数）
- * @param {string} filename - 要保存的文件名
- */
-function _saveMarkdownFile(filename) {
-  const validatedFilename = validateFilename(filename, '.md');
-  
-  // 更新当前文件名和 UI
-  currentFileName = validatedFilename;
-  if (fileNameEl) fileNameEl.textContent = currentFileName;
-  persist(); // 更新本地存储
-  
-  const blob = new Blob([editor.value], {
-    type: "text/markdown;charset=utf-8"
-  });
+function serializeCurrentDocument() {
+  const content = sourceLineEnding === '\n'
+    ? editor.value
+    : editor.value.replace(/\n/g, sourceLineEnding);
+  return sourceHasBom ? `\uFEFF${content}` : content;
+}
 
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = currentFileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-
+function applyLoadedDocument(file, fileData, handle, nextSourceKind) {
+  editor.value = fileData.content;
+  currentFileName = file.name || '未命名文档.md';
+  currentFileHandle = handle || null;
+  sourceKind = nextSourceKind;
+  sourceLastModified = Number.isFinite(file.lastModified) ? file.lastModified : null;
+  sourceLineEnding = fileData.lineEnding;
+  sourceHasBom = fileData.hasBom;
   lastSavedContent = editor.value;
   isDirty = false;
+  resetTocState();
+  showPreviewOnly();
+  renderMarkdown(true);
+  updateStats();
+  persist();
   updateDirtyIndicator();
-  setStatus(`已保存：${currentFileName}`);
 }
 
-/**
- * 保存 Markdown（带文件名提示）
- */
-function saveMarkdownFile() {
-  showFilenameDialog(
-    "保存 Markdown 文件",
-    currentFileName || "未命名文档.md",
-    'save',
-    (filename) => {
-      _saveMarkdownFile(filename);
+async function loadSelectedMarkdown(file, handle = null, nextSourceKind = SOURCE_KIND.UNLINKED) {
+  try {
+    const fileData = await readMarkdownFile(file);
+    applyLoadedDocument(file, fileData, handle, nextSourceKind);
+  } catch (error) {
+    reportFileError(error, '打开文件');
+  }
+}
+
+async function openMarkdownFile() {
+  if (!confirmDocumentReplacement('打开其他文件')) return;
+
+  if (!supportsFilePicker('showOpenFilePicker')) {
+    fileInput.click();
+    return;
+  }
+
+  try {
+    const [handle] = await window.showOpenFilePicker(MARKDOWN_FILE_OPTIONS);
+    const file = await handle.getFile();
+    await loadSelectedMarkdown(file, handle, SOURCE_KIND.LINKED);
+  } catch (error) {
+    if (isUnsupportedFileSystemAccess(error)) {
+      fileSystemAccessDisabled = true;
+      setStatus('系统文件访问不可用，已切换兼容打开方式', 'notice');
+      fileInput.click();
+      return;
     }
-  );
+    reportFileError(error, '打开文件');
+  }
+}
+
+fileInput.addEventListener('change', async () => {
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) return;
+  await loadSelectedMarkdown(file, null, SOURCE_KIND.UNLINKED);
+  fileInput.value = '';
+});
+
+async function ensureWritePermission(handle) {
+  if (!handle || typeof handle.queryPermission !== 'function') return true;
+
+  const options = { mode: 'readwrite' };
+  let permission = await handle.queryPermission(options);
+  if (permission === 'prompt' && typeof handle.requestPermission === 'function') {
+    permission = await handle.requestPermission(options);
+  }
+  return permission === 'granted';
+}
+
+async function hasExternalFileChange(handle) {
+  if (!handle || sourceLastModified === null) return false;
+  const diskFile = await handle.getFile();
+  if (diskFile.lastModified === sourceLastModified) return false;
+
+  const diskData = await readMarkdownFile(diskFile);
+  return diskData.content !== lastSavedContent;
+}
+
+async function writeCurrentDocumentToHandle(handle, options = {}) {
+  const { checkConflict = true } = options;
+  let writable = null;
+
+  try {
+    if (!(await ensureWritePermission(handle))) {
+      setStatus('未获得文件写入权限，文件未保存', 'danger');
+      return false;
+    }
+
+    if (checkConflict && await hasExternalFileChange(handle)) {
+      const overwrite = window.confirm('磁盘上的文件已被其他程序修改。继续保存将覆盖外部修改，是否继续？');
+      if (!overwrite) {
+        setStatus('已取消保存，磁盘文件未更改', 'notice');
+        return false;
+      }
+    }
+
+    writable = await handle.createWritable();
+    await writable.write(serializeCurrentDocument());
+    await writable.close();
+    writable = null;
+
+    const savedFile = await handle.getFile();
+    currentFileHandle = handle;
+    currentFileName = handle.name || currentFileName;
+    sourceKind = SOURCE_KIND.LINKED;
+    sourceLastModified = Number.isFinite(savedFile.lastModified) ? savedFile.lastModified : null;
+    lastSavedContent = editor.value;
+    isDirty = false;
+    persist();
+    updateDirtyIndicator();
+    setStatus(`已保存到 ${currentFileName}`, 'success');
+    return true;
+  } catch (error) {
+    if (writable && typeof writable.abort === 'function') {
+      try {
+        await writable.abort();
+      } catch (abortError) {
+        console.warn('无法中止未完成的写入：', abortError);
+      }
+    }
+    reportFileError(error, '保存');
+    return false;
+  }
+}
+
+function downloadMarkdownCopy(filename) {
+  const validatedFilename = validateFilename(filename, '.md');
+  const blob = new Blob([serializeCurrentDocument()], {
+    type: 'text/markdown;charset=utf-8'
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = validatedFilename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+
+  currentFileName = validatedFilename;
+  currentFileHandle = null;
+  sourceKind = SOURCE_KIND.UNLINKED;
+  sourceLastModified = null;
+  lastSavedContent = editor.value;
+  isDirty = false;
+  persist();
+  updateDirtyIndicator();
+  setStatus(`副本已下载：${currentFileName} · 源文件未更改`, 'notice');
+}
+
+async function saveMarkdownAs() {
+  const suggestedName = validateFilename(currentFileName || '未命名文档.md', '.md');
+
+  if (!supportsFilePicker('showSaveFilePicker')) {
+    showFilenameDialog('另存为 Markdown 文件', suggestedName, 'save-as', downloadMarkdownCopy);
+    return;
+  }
+
+  try {
+    const handle = await window.showSaveFilePicker({
+      ...MARKDOWN_FILE_OPTIONS,
+      suggestedName
+    });
+    await writeCurrentDocumentToHandle(handle, { checkConflict: false });
+  } catch (error) {
+    if (isUnsupportedFileSystemAccess(error)) {
+      fileSystemAccessDisabled = true;
+      showFilenameDialog('另存为 Markdown 文件', suggestedName, 'save-as', downloadMarkdownCopy);
+      return;
+    }
+    reportFileError(error, '另存为');
+  }
+}
+
+async function connectSourceAndSave() {
+  hideSourceAccessDialog();
+
+  if (!supportsFilePicker('showOpenFilePicker')) {
+    setStatus('当前环境无法连接源文件，请另存为新文件', 'notice');
+    saveMarkdownAs();
+    return;
+  }
+
+  try {
+    const [handle] = await window.showOpenFilePicker(MARKDOWN_FILE_OPTIONS);
+    if (handle.name !== currentFileName) {
+      const useDifferentFile = window.confirm(
+        `所选文件“${handle.name}”与当前文件“${currentFileName}”名称不同。是否仍写入所选文件？`
+      );
+      if (!useDifferentFile) {
+        setStatus('已取消连接源文件');
+        return;
+      }
+    }
+
+    if (!(await ensureWritePermission(handle))) {
+      setStatus('未获得源文件写入权限，文件未保存', 'danger');
+      return;
+    }
+
+    const diskFile = await handle.getFile();
+    const diskData = await readMarkdownFile(diskFile);
+    if (diskData.content !== lastSavedContent && diskData.content !== editor.value) {
+      const overwriteDifferentContent = window.confirm(
+        '所选文件的内容与打开时不同。继续保存将覆盖所选文件，是否继续？'
+      );
+      if (!overwriteDifferentContent) {
+        setStatus('已取消保存，所选文件未更改', 'notice');
+        return;
+      }
+    }
+
+    currentFileHandle = handle;
+    sourceKind = SOURCE_KIND.LINKED;
+    sourceLastModified = diskFile.lastModified;
+    sourceLineEnding = diskData.lineEnding;
+    sourceHasBom = diskData.hasBom;
+    await writeCurrentDocumentToHandle(handle, { checkConflict: false });
+  } catch (error) {
+    if (isUnsupportedFileSystemAccess(error)) {
+      fileSystemAccessDisabled = true;
+      setStatus('当前环境无法连接源文件，请另存为新文件', 'notice');
+      saveMarkdownAs();
+      return;
+    }
+    reportFileError(error, '连接源文件');
+  }
+}
+
+function saveMarkdownFile() {
+  if (!isDirty && sourceKind !== SOURCE_KIND.NEW) {
+    setStatus('当前没有需要保存的修改');
+    return;
+  }
+
+  if (sourceKind === SOURCE_KIND.LINKED && currentFileHandle) {
+    writeCurrentDocumentToHandle(currentFileHandle);
+  } else if (sourceKind === SOURCE_KIND.NEW) {
+    saveMarkdownAs();
+  } else {
+    showSourceAccessDialog();
+  }
 }
 
 /**
@@ -1063,15 +1415,63 @@ function _exportHtmlFile(filename) {
   const htmlContent = generateHtmlTemplate(title, renderedHtml);
   const downloadedFilename = downloadHtmlFile(htmlContent, validatedFilename);
   
-  setStatus(`已导出 HTML：${downloadedFilename}`);
+  setStatus(
+    isDirty
+      ? `已导出 HTML：${downloadedFilename} · Markdown 仍未保存`
+      : `已导出 HTML：${downloadedFilename}`,
+    isDirty ? 'notice' : 'success'
+  );
 }
 
 /**
  * 导出 HTML（带文件名提示）
  */
-function exportHtmlFile() {
+async function exportHtmlFile() {
   const defaultHtmlName = `${(currentFileName || "Markdown导出").replace(/\.md$/i, "")}.html`;
-  
+
+  if (supportsFilePicker('showSaveFilePicker')) {
+    let writable = null;
+    try {
+      const handle = await window.showSaveFilePicker({
+        id: 'markdown-html-exports',
+        suggestedName: defaultHtmlName,
+        types: [{
+          description: 'HTML 文档',
+          accept: { 'text/html': ['.html'] }
+        }]
+      });
+      const filename = validateFilename(handle.name || defaultHtmlName, '.html');
+      const title = filename.replace(/\.html$/i, '');
+      const htmlContent = generateHtmlTemplate(title, preview.innerHTML);
+      writable = await handle.createWritable();
+      await writable.write(htmlContent);
+      await writable.close();
+      writable = null;
+      setStatus(
+        isDirty
+          ? `已导出 HTML：${filename} · Markdown 仍未保存`
+          : `已导出 HTML：${filename}`,
+        isDirty ? 'notice' : 'success'
+      );
+      return;
+    } catch (error) {
+      if (writable && typeof writable.abort === 'function') {
+        try {
+          await writable.abort();
+        } catch (abortError) {
+          console.warn('无法中止 HTML 导出写入：', abortError);
+        }
+      }
+      if (isUnsupportedFileSystemAccess(error)) {
+        fileSystemAccessDisabled = true;
+        showFilenameDialog('导出 HTML 文件', defaultHtmlName, 'export', _exportHtmlFile);
+        return;
+      }
+      reportFileError(error, '导出 HTML');
+      return;
+    }
+  }
+
   showFilenameDialog(
     "导出 HTML 文件",
     defaultHtmlName,
@@ -1086,19 +1486,23 @@ function exportHtmlFile() {
  * 新建文档
  */
 function newDocument() {
-  const ok = window.confirm("确定要新建文档吗？当前未保存的更改可能会丢失。");
-  if (!ok) return;
+  if (!confirmDocumentReplacement('新建文档')) return;
 
   currentFileName = "未命名文档.md";
   editor.value = defaultMarkdown();
+  currentFileHandle = null;
+  sourceKind = SOURCE_KIND.NEW;
+  sourceLastModified = null;
+  sourceLineEnding = '\n';
+  sourceHasBom = false;
   lastSavedContent = editor.value;
   isDirty = false;
-  updateDirtyIndicator();
   resetTocState();
+  setEditingMode(true, { focusEditor: true });
   renderMarkdown(true);
   updateStats();
   persist();
-  setStatus("已新建文档");
+  updateDirtyIndicator();
 }
 
 /**
@@ -1178,6 +1582,7 @@ function handleImageFile(file) {
     const alt = (file.name || "image").replace(/\.[^.]+$/, "");
     const markdown = `\n![${alt}](${dataUrl})\n`;
     insertAtCursor(editor, markdown);
+    markDocumentChanged();
     renderMarkdown(true);
     setStatus(`已插入图片：${file.name || "image"}`);
   };
@@ -1220,7 +1625,7 @@ editor.addEventListener("dragover", (e) => {
   e.preventDefault();
 });
 
-editor.addEventListener("drop", (e) => {
+editor.addEventListener("drop", async (e) => {
   e.preventDefault();
   const files = Array.from(e.dataTransfer?.files || []);
   if (!files.length) return;
@@ -1231,14 +1636,26 @@ editor.addEventListener("drop", (e) => {
     f.type === 'text/markdown' || f.type === 'text/x-markdown'
   );
   if (mdFile) {
+    if (!confirmDocumentReplacement('打开拖入的文件')) return;
     e.stopPropagation();
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        loadFileContent(reader.result, mdFile.name);
+    let handle = null;
+    const matchingItem = Array.from(e.dataTransfer?.items || []).find((item) => {
+      const itemFile = item.kind === 'file' ? item.getAsFile() : null;
+      return itemFile && itemFile.name === mdFile.name && itemFile.size === mdFile.size;
+    });
+    if (matchingItem && typeof matchingItem.getAsFileSystemHandle === 'function') {
+      try {
+        handle = await matchingItem.getAsFileSystemHandle();
+        if (handle?.kind !== 'file') handle = null;
+      } catch (error) {
+        console.warn('无法取得拖入文件的句柄：', error);
       }
-    };
-    reader.readAsText(mdFile, 'utf-8');
+    }
+    await loadSelectedMarkdown(
+      mdFile,
+      handle,
+      handle ? SOURCE_KIND.LINKED : SOURCE_KIND.UNLINKED
+    );
     return;
   }
 
@@ -1346,9 +1763,19 @@ toc.addEventListener("click", (e) => {
  * 快捷键
  */
 document.addEventListener("keydown", (e) => {
+  if (e.key === 'Escape' && sourceAccessDialog && !sourceAccessDialog.hidden) {
+    e.preventDefault();
+    hideSourceAccessDialog();
+    updateDirtyIndicator();
+    return;
+  }
+
   const mod = IS_MAC ? e.metaKey : e.ctrlKey;
 
-  if (mod && e.key.toLowerCase() === "s") {
+  if (mod && e.shiftKey && e.key.toLowerCase() === "s") {
+    e.preventDefault();
+    saveMarkdownAs();
+  } else if (mod && e.key.toLowerCase() === "s") {
     e.preventDefault();
     saveMarkdownFile();
   }
@@ -1369,9 +1796,11 @@ document.addEventListener("keydown", (e) => {
  */
 openBtn?.addEventListener("click", openMarkdownFile);
 saveBtn?.addEventListener("click", saveMarkdownFile);
+saveAsBtn?.addEventListener("click", saveMarkdownAs);
 exportHtmlBtn?.addEventListener("click", exportHtmlFile);
 fontSizeBtn?.addEventListener("click", toggleFontSize);
 newBtn?.addEventListener("click", newDocument);
+editModeBtn?.addEventListener("click", toggleEditingMode);
 
 // 布局控制事件
 sidebarToggle?.addEventListener("click", toggleSidebar);
@@ -1406,7 +1835,27 @@ filenameDialog?.addEventListener("click", (e) => {
   }
 });
 
-editor.addEventListener("input", debounce(renderMarkdown, 200));
+sourceAccessCancelBtn?.addEventListener('click', () => {
+  hideSourceAccessDialog();
+  updateDirtyIndicator();
+});
+sourceAccessSaveAsBtn?.addEventListener('click', () => {
+  hideSourceAccessDialog();
+  saveMarkdownAs();
+});
+sourceAccessConnectBtn?.addEventListener('click', connectSourceAndSave);
+sourceAccessDialog?.addEventListener('click', (e) => {
+  if (e.target === sourceAccessDialog) {
+    hideSourceAccessDialog();
+    updateDirtyIndicator();
+  }
+});
+
+const renderAfterInput = debounce(renderMarkdown, 200);
+editor.addEventListener("input", () => {
+  markDocumentChanged();
+  renderAfterInput();
+});
 editor.addEventListener("scroll", syncEditorToPreview, { passive: true });
 
 // 合并的预览滚动处理：同步滚动 + 目录高亮
@@ -1458,27 +1907,29 @@ window.addEventListener('beforeunload', (e) => {
 restoreFontSize();
 restore();
 restoreLayoutState();
-updateLayout();
-updateDirtyIndicator();
+showPreviewOnly();
 renderMarkdown(true);
 updateStats();
-setStatus("已就绪");
 
 // 文件关联启动：通过 URL 参数 ?file=<nonce> 识别来自 content script 的加载
 // 避免 chrome.storage.local 残留污染正常打开的标签页
 function loadFileContent(content, filename) {
-  editor.value = content;
+  const normalizedContent = String(content || '').replace(/\r\n?/g, '\n');
+  editor.value = normalizedContent;
   currentFileName = filename || '未命名文档.md';
-  if (fileNameEl) fileNameEl.textContent = currentFileName;
-  lastSavedContent = content;
+  currentFileHandle = null;
+  sourceKind = SOURCE_KIND.UNLINKED;
+  sourceLastModified = null;
+  sourceLineEnding = String(content || '').includes('\r\n') ? '\r\n' : '\n';
+  sourceHasBom = false;
+  lastSavedContent = normalizedContent;
   isDirty = false;
-  updateDirtyIndicator();
   resetTocState();
   showPreviewOnly();
   renderMarkdown(true);
   updateStats();
   persist();
-  setStatus(`已打开：${currentFileName}`);
+  updateDirtyIndicator();
 }
 
 (function checkFileLaunch() {
