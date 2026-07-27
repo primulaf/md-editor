@@ -1,11 +1,14 @@
 # md.
 
-离线 Markdown 阅读与编辑 Chrome 扩展。GitHub 风格白底界面，支持默认阅读、按需编辑、源文件保存、目录导航、图片粘贴和 HTML 导出，可直接打开本地 .md 文件。
+离线 Markdown 阅读与编辑 Chrome 扩展。GitHub 风格白底界面，支持 Mermaid 图表、默认阅读、按需编辑、源文件保存、目录导航、图片粘贴和 HTML 导出，可直接打开本地 .md 文件。
 
 当前稳定版本：**v1.5.0**。可从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载扩展压缩包，详细改动见 [v1.5.0 版本说明](docs/releases/v1.5.0.md)。
 
+仓库当前开发版本：**v1.6.0**，新增完整 Mermaid 内置图表离线渲染。
+
 ## 功能
 
+- **Mermaid 图表** — 离线渲染 Mermaid 内置图表类型，支持错误回退、响应式宽图和 HTML 内联导出
 - **默认阅读模式** — 打开文件后只显示目录和预览，点击“编辑文档”后再显示编辑区
 - **源文件保存** — 工具内打开的文件可直接写回；双击接管的文件首次保存时引导选择源文件
 - **保存与另存为** — 保存写回当前目标，另存为创建新的 Markdown 文件
@@ -38,7 +41,8 @@
 git clone https://github.com/primulaf/md-editor.git
 cd md-editor
 npm install
-npx esbuild --bundle --format=iife --global-name=hljs _hljs_bundle.cjs --outfile=lib/highlight.min.js
+npm run vendor
+npm test
 ```
 
 然后在 `chrome://extensions` 中加载项目目录。
@@ -62,6 +66,26 @@ npx esbuild --bundle --format=iife --global-name=hljs _hljs_bundle.cjs --outfile
 - 双击 `.md` 由扩展接管时，Chrome 不会把源文件写入权限交给扩展。修改后首次点击「保存」，请选择原文件完成授权，或使用「另存为」创建新文件。
 - 「导出 HTML」只生成 HTML，不会改变 Markdown 的保存目标，也不会清除 Markdown 的未保存状态。
 
+## Mermaid 图表
+
+使用语言标记为 `mermaid` 的代码围栏：
+
+````markdown
+```mermaid
+mindmap
+  root((项目))
+    设计
+    开发
+```
+````
+
+- 图表类型由 Mermaid 自动识别，支持当前锁定版本内置的全部类型。
+- 图表完全离线渲染，不会请求 CDN 或远程脚本。
+- 图表语法错误时会在对应位置显示源码，不影响其他内容。
+- 单篇文档最多渲染 50 个图表，单图最多 50000 个字符。
+- 为保持完全离线，图表中的远程图片和远程样式不会加载。
+- HTML 导出会直接内联 SVG，导出文件不需要 Mermaid 运行库。
+
 ## 快捷键
 
 | 快捷键 | 操作 |
@@ -74,6 +98,7 @@ npx esbuild --bundle --format=iife --global-name=hljs _hljs_bundle.cjs --outfile
 ## 技术栈
 
 - **Markdown 渲染**：[markdown-it](https://github.com/markdown-it/markdown-it) + markdown-it-anchor
+- **图表渲染**：[Mermaid](https://mermaid.js.org/) 11.16.0（完整内置图表、按需 ESM 分块）
 - **XSS 防护**：[DOMPurify](https://github.com/cure53/DOMPurify)
 - **代码高亮**：[highlight.js](https://highlightjs.org/)（精简子集，9 种语言）
 - **字体**：GitHub 风格系统字体栈，编辑区与代码块使用系统等宽字体
@@ -87,6 +112,7 @@ npx esbuild --bundle --format=iife --global-name=hljs _hljs_bundle.cjs --outfile
 ├── content.js         # Content Script：拦截 file://*.md 读取内容
 ├── index.html         # 主页面
 ├── app.js             # 全部业务逻辑
+├── mermaid-renderer.mjs # Mermaid 异步渲染、缓存与安全控制
 ├── style.css          # 样式系统
 ├── docs/              # 迭代 Spec 与实施计划
 ├── icons/             # 扩展图标 (16/48/128)
@@ -95,6 +121,7 @@ npx esbuild --bundle --format=iife --global-name=hljs _hljs_bundle.cjs --outfile
 │   ├── markdownItAnchor.umd.js
 │   ├── purify.min.js
 │   ├── highlight.min.js
+│   ├── mermaid/        # Mermaid ESM 入口与按图表类型分块
 │   └── github*.min.css
 └── fonts/
     └── jetbrains-mono.woff2

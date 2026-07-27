@@ -622,6 +622,77 @@ body { overflow: hidden; }
 
 .markdown-body > :first-child { margin-top: 0; }
 
+.mermaid-block {
+  width: 100%;
+  max-width: 100%;
+  margin: 1.4em 0;
+}
+
+.mermaid-canvas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  max-width: 100%;
+  padding: 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.mermaid-block.is-rendered .mermaid-canvas {
+  align-items: flex-start;
+}
+
+.mermaid-svg {
+  display: block;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: auto;
+}
+
+.mermaid-block.is-wide .mermaid-svg {
+  min-width: 720px;
+  max-width: none;
+}
+
+.mermaid-loading {
+  color: var(--text-tertiary);
+  font-size: calc(var(--fs-preview) * 0.9);
+}
+
+.mermaid-block.has-error .mermaid-canvas {
+  justify-content: flex-start;
+  min-height: 0;
+  background: #fff8c5;
+  border-color: #d4a72c;
+}
+
+.mermaid-error {
+  display: grid;
+  gap: 4px;
+  color: #633c01;
+  font-size: calc(var(--fs-preview) * 0.9);
+  line-height: 1.5;
+}
+
+.mermaid-error strong {
+  color: #4d2d00;
+  font-size: 1em;
+}
+
+.mermaid-source[hidden] {
+  display: none;
+}
+
+.markdown-body .mermaid-source {
+  margin: 8px 0 0;
+}
+
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3,

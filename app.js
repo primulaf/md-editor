@@ -37,6 +37,7 @@ const STORAGE_BASELINE_KEY = "md-editor-last-saved-content";
 const STORAGE_SOURCE_KIND_KEY = "md-editor-source-kind";
 const STORAGE_FONT_SIZE_KEY = "md-editor-font-size";
 const LAYOUT_STORAGE_KEY = "md-editor-layout";
+const MERMAID_RENDER_DELAY = 450;
 
 const SOURCE_KIND = Object.freeze({
   NEW: 'new',
@@ -100,6 +101,9 @@ let sourceLastModified = null;
 let sourceLineEnding = '\n';
 let sourceHasBom = false;
 let fileSystemAccessDisabled = false;
+let mermaidRenderRevision = 0;
+let mermaidRendererModulePromise = null;
+let activeMermaidRenderPromise = Promise.resolve();
 
 // 文件名对话框状态
 let pendingFilenameCallback = null;
@@ -363,6 +367,112 @@ if (window.markdownitAnchor) {
   });
 }
 
+const defaultFenceRenderer = md.renderer.rules.fence;
+md.renderer.rules.fence = (tokens, index, options, env, renderer) => {
+  const token = tokens[index];
+  const language = (token.info || '').trim().split(/\s+/)[0].toLowerCase();
+  if (language !== 'mermaid') {
+    return defaultFenceRenderer(tokens, index, options, env, renderer);
+  }
+
+  const source = md.utils.escapeHtml(token.content || '');
+  return [
+    '<figure class="mermaid-block">',
+    '<div class="mermaid-canvas" aria-busy="true">',
+    '<span class="mermaid-loading">正在渲染图表...</span>',
+    '</div>',
+    `<pre class="mermaid-source" hidden><code>${source}</code></pre>`,
+    '</figure>'
+  ].join('');
+};
+
+function getPreviewFontSize() {
+  return parseFloat(getComputedStyle(preview).fontSize) || 14;
+}
+
+function getMermaidRendererModule() {
+  if (!mermaidRendererModulePromise) {
+    mermaidRendererModulePromise = import('./mermaid-renderer.mjs').catch((error) => {
+      mermaidRendererModulePromise = null;
+      throw error;
+    });
+  }
+  return mermaidRendererModulePromise;
+}
+
+function showMermaidModuleError(revision, error) {
+  if (preview.dataset.mermaidRevision !== revision) return;
+  console.error('Mermaid 运行库加载失败：', error);
+
+  preview.querySelectorAll('.mermaid-block').forEach((block) => {
+    const canvas = block.querySelector('.mermaid-canvas');
+    const source = block.querySelector('.mermaid-source');
+    block.classList.add('has-error');
+    if (canvas) {
+      canvas.removeAttribute('aria-busy');
+      canvas.replaceChildren();
+
+      const message = document.createElement('div');
+      message.className = 'mermaid-error';
+      message.setAttribute('role', 'alert');
+      message.textContent = 'Mermaid 运行库加载失败，已显示源码。';
+      canvas.appendChild(message);
+    }
+    if (source) source.hidden = false;
+  });
+}
+
+function queueMermaidRender(options = {}) {
+  const revision = String(mermaidRenderRevision += 1);
+  preview.dataset.mermaidRevision = revision;
+
+  if (!preview.querySelector('.mermaid-block')) {
+    activeMermaidRenderPromise = Promise.resolve({
+      total: 0,
+      rendered: 0,
+      failed: 0
+    });
+    return activeMermaidRenderPromise;
+  }
+
+  const immediate = Boolean(options.immediate);
+  const force = Boolean(options.force);
+  if (!layout.previewVisible && !force) {
+    activeMermaidRenderPromise = Promise.resolve({ deferred: true });
+    return activeMermaidRenderPromise;
+  }
+
+  activeMermaidRenderPromise = getMermaidRendererModule()
+    .then((module) => module.renderMermaidBlocks(preview, {
+      revision,
+      fontSize: getPreviewFontSize(),
+      delay: immediate ? 0 : MERMAID_RENDER_DELAY
+    }))
+    .catch((error) => {
+      showMermaidModuleError(revision, error);
+      return { total: 0, rendered: 0, failed: 1 };
+    });
+
+  return activeMermaidRenderPromise;
+}
+
+async function ensureMermaidRendered() {
+  if (!preview.querySelector('.mermaid-block')) return;
+  await queueMermaidRender({ immediate: true, force: true });
+}
+
+function getExportPreviewHtml() {
+  const clone = preview.cloneNode(true);
+  clone.removeAttribute('data-mermaid-revision');
+  clone.querySelectorAll('.mermaid-block.is-rendered .mermaid-source').forEach((source) => {
+    source.remove();
+  });
+  clone.querySelectorAll('[aria-busy]').forEach((element) => {
+    element.removeAttribute('aria-busy');
+  });
+  return clone.innerHTML;
+}
+
 /**
  * 渲染 Markdown
  */
@@ -411,6 +521,8 @@ function renderMarkdown(force) {
           a.setAttribute("rel", "noopener noreferrer");
         }
       });
+
+      queueMermaidRender({ immediate: Boolean(force), force: Boolean(force) });
 
       // 仅当标题结构变化时才重建目录
       const headingHash = computeHeadingHash();
@@ -825,6 +937,9 @@ function restorePane(pane) {
     layout.previewVisible = true;
   }
   updateLayout();
+  if (pane === 'preview') {
+    queueMermaidRender({ immediate: true, force: true });
+  }
 }
 
 function showPreviewOnly() {
@@ -925,6 +1040,9 @@ function applyFontSize(tier) {
   document.documentElement.setAttribute('data-font-size', validTier === 'small' ? '' : validTier);
   if (fontSizeBtn) fontSizeBtn.textContent = FONT_SIZE_LABELS[validTier];
   localStorage.setItem(STORAGE_FONT_SIZE_KEY, validTier);
+  if (preview.querySelector('.mermaid-block')) {
+    queueMermaidRender({ immediate: true });
+  }
 }
 
 function toggleFontSize() {
@@ -1361,6 +1479,48 @@ function generateHtmlTemplate(title, renderedHtml) {
       border-radius: 6px;
       border: 1px solid var(--border);
     }
+    .container .mermaid-block {
+      width: 100%;
+      max-width: 100%;
+      margin: 1.4em 0;
+    }
+    .container .mermaid-canvas {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      max-width: 100%;
+      padding: 16px;
+      overflow: auto;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .container .mermaid-svg {
+      display: block;
+      flex: 0 0 auto;
+      width: auto;
+      max-width: 100%;
+      height: auto;
+      margin: auto;
+    }
+    .container .mermaid-block.is-wide .mermaid-svg {
+      min-width: 720px;
+      max-width: none;
+    }
+    .container .mermaid-block.has-error .mermaid-canvas {
+      justify-content: flex-start;
+      background: #fff8c5;
+      border-color: #d4a72c;
+    }
+    .container .mermaid-error {
+      display: grid;
+      gap: 4px;
+      color: #633c01;
+      line-height: 1.5;
+    }
+    .container .mermaid-source {
+      margin-top: 8px;
+    }
     .container a {
       color: var(--accent);
       text-decoration: none;
@@ -1407,10 +1567,11 @@ function downloadHtmlFile(content, filename) {
  * 实际导出 HTML 文件（内部函数）
  * @param {string} filename - 要导出的 HTML 文件名
  */
-function _exportHtmlFile(filename) {
+async function _exportHtmlFile(filename) {
   const validatedFilename = validateFilename(filename, '.html');
   const title = validatedFilename.replace(/\.html$/i, "");
-  const renderedHtml = preview.innerHTML;
+  await ensureMermaidRendered();
+  const renderedHtml = getExportPreviewHtml();
 
   const htmlContent = generateHtmlTemplate(title, renderedHtml);
   const downloadedFilename = downloadHtmlFile(htmlContent, validatedFilename);
@@ -1442,7 +1603,8 @@ async function exportHtmlFile() {
       });
       const filename = validateFilename(handle.name || defaultHtmlName, '.html');
       const title = filename.replace(/\.html$/i, '');
-      const htmlContent = generateHtmlTemplate(title, preview.innerHTML);
+      await ensureMermaidRendered();
+      const htmlContent = generateHtmlTemplate(title, getExportPreviewHtml());
       writable = await handle.createWritable();
       await writable.write(htmlContent);
       await writable.close();
