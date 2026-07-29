@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 
 const root = new URL('../', import.meta.url);
 const sourceRoot = new URL('node_modules/mermaid/dist/', root);
@@ -30,6 +30,20 @@ const chunkNames = (await readdir(sourceChunks))
 await Promise.all(chunkNames.map((name) => (
   copyFile(new URL(name, sourceChunks), new URL(name, outputChunks))
 )));
+
+const dependencyManifest = {
+  name: 'mermaid',
+  version: '11.16.0',
+  rendererApi: 1,
+  entry: 'mermaid.esm.min.mjs',
+  chunkDirectory: 'chunks/mermaid.esm.min',
+  chunks: chunkNames.length
+};
+await writeFile(
+  new URL('version.json', outputRoot),
+  `${JSON.stringify(dependencyManifest, null, 2)}\n`,
+  'utf8'
+);
 
 const entrySize = (await stat(new URL('mermaid.esm.min.mjs', outputRoot))).size;
 const chunkSizes = await Promise.all(

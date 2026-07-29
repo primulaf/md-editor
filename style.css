@@ -642,6 +642,10 @@ body { overflow: hidden; }
   border-radius: 6px;
 }
 
+.mermaid-canvas[hidden] {
+  display: none;
+}
+
 .mermaid-block.is-rendered .mermaid-canvas {
   align-items: flex-start;
 }
@@ -690,7 +694,35 @@ body { overflow: hidden; }
 }
 
 .markdown-body .mermaid-source {
-  margin: 8px 0 0;
+  margin: 0;
+}
+
+.mermaid-dependency-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.mermaid-install-link {
+  all: unset;
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.mermaid-install-link:hover {
+  text-decoration: underline;
+}
+
+.mermaid-install-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .markdown-body h1,
@@ -955,6 +987,43 @@ body { overflow: hidden; }
 .filename-dialog-actions { display: flex; justify-content: flex-end; gap: 6px; }
 
 .source-dialog-actions { flex-wrap: wrap; }
+
+.mermaid-install-dialog-content {
+  max-width: 540px;
+}
+
+.mermaid-install-body ol {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding-left: 20px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+.mermaid-install-body code {
+  overflow-wrap: anywhere;
+  padding: 1px 4px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.mermaid-install-body a {
+  color: var(--accent);
+}
+
+.mermaid-install-warning {
+  margin: 14px 0 0;
+  padding: 9px 10px;
+  background: #fff8c5;
+  border-left: 3px solid #d4a72c;
+  color: #633c01;
+  font-size: 11px;
+  line-height: 1.55;
+}
 
 .filename-btn {
   all: unset;

@@ -1,3 +1,5 @@
+import { getMermaidCapability } from './mermaid-capability.mjs';
+
 const MAX_DIAGRAMS = 50;
 const MAX_SOURCE_CHARS = 50000;
 const CACHE_ENTRY_LIMIT = 24;
@@ -92,11 +94,13 @@ function getSource(block) {
 }
 
 function setLoading(block) {
-  block.classList.remove('is-rendered', 'has-error', 'is-wide');
+  block.classList.remove('is-rendered', 'has-error', 'is-source-only', 'is-wide');
   const canvas = block.querySelector('.mermaid-canvas');
   const source = block.querySelector('.mermaid-source');
   if (!canvas) return;
 
+  block.querySelector('.mermaid-dependency-notice')?.remove();
+  canvas.hidden = false;
   canvas.replaceChildren();
   canvas.setAttribute('aria-busy', 'true');
 
@@ -129,12 +133,13 @@ function hasBlockedResourceReference(source) {
 }
 
 function showError(block, message, detail = '') {
-  block.classList.remove('is-rendered', 'is-wide');
+  block.classList.remove('is-rendered', 'is-source-only', 'is-wide');
   block.classList.add('has-error');
 
   const canvas = block.querySelector('.mermaid-canvas');
   const source = block.querySelector('.mermaid-source');
   if (canvas) {
+    canvas.hidden = false;
     canvas.replaceChildren();
     canvas.removeAttribute('aria-busy');
 
@@ -151,6 +156,57 @@ function showError(block, message, detail = '') {
     canvas.appendChild(error);
   }
   if (source) source.hidden = false;
+}
+
+function showDependencyFallback(block, capability, showNotice) {
+  block.classList.remove('is-rendered', 'has-error', 'is-wide');
+  block.classList.add('is-source-only');
+
+  const canvas = block.querySelector('.mermaid-canvas');
+  const source = block.querySelector('.mermaid-source');
+  if (canvas) {
+    canvas.replaceChildren();
+    canvas.removeAttribute('aria-busy');
+    canvas.hidden = true;
+  }
+  if (source) source.hidden = false;
+
+  block.querySelector('.mermaid-dependency-notice')?.remove();
+  if (!showNotice) return;
+
+  const notice = document.createElement('figcaption');
+  notice.className = 'mermaid-dependency-notice';
+  notice.setAttribute('role', 'status');
+
+  const text = document.createElement('span');
+  if (capability.reason === 'missing') {
+    text.textContent = 'Mermaid 组件未安装，当前显示源码。';
+  } else if (capability.reason === 'incompatible') {
+    text.textContent = 'Mermaid 组件版本不兼容，当前显示源码。';
+  } else {
+    text.textContent = 'Mermaid 组件不完整，当前显示源码。';
+  }
+  if (capability.detail) notice.title = capability.detail;
+
+  const helpButton = document.createElement('button');
+  helpButton.type = 'button';
+  helpButton.className = 'mermaid-install-link';
+  helpButton.textContent = '安装说明';
+  notice.append(text, helpButton);
+  block.insertBefore(notice, source || null);
+}
+
+function showDependencyFallbackForAll(blocks, capability) {
+  blocks.forEach((block, index) => {
+    showDependencyFallback(block, capability, index === 0);
+  });
+  return {
+    total: blocks.length,
+    rendered: 0,
+    failed: 0,
+    unavailable: true,
+    reason: capability.reason
+  };
 }
 
 function sanitizeSvg(svg) {
@@ -210,6 +266,8 @@ function applySvg(block, svg) {
   const source = block.querySelector('.mermaid-source');
   if (!canvas) return;
 
+  block.querySelector('.mermaid-dependency-notice')?.remove();
+  canvas.hidden = false;
   canvas.innerHTML = svg;
   canvas.removeAttribute('aria-busy');
 
@@ -224,7 +282,7 @@ function applySvg(block, svg) {
   const viewBox = svgElement.viewBox?.baseVal;
   const aspectRatio = viewBox?.height ? viewBox.width / viewBox.height : 0;
   block.classList.toggle('is-wide', aspectRatio > 2.4);
-  block.classList.remove('has-error');
+  block.classList.remove('has-error', 'is-source-only');
   block.classList.add('is-rendered');
   if (source) source.hidden = true;
 }
@@ -315,12 +373,14 @@ async function renderPending(root, revision, pending, fontSize) {
   try {
     mermaid = await getMermaid(fontSize);
   } catch (error) {
-    pending.forEach(({ block }) => {
-      if (block.isConnected) {
-        showError(block, 'Mermaid 运行库加载失败，已显示源码。', String(error));
-      }
+    const connectedBlocks = pending
+      .map(({ block }) => block)
+      .filter((block) => block.isConnected);
+    return showDependencyFallbackForAll(connectedBlocks, {
+      available: false,
+      reason: 'broken',
+      detail: String(error?.message || error)
     });
-    return { total: pending.length, rendered: 0, failed: pending.length };
   }
 
   let rendered = 0;
@@ -359,6 +419,14 @@ export async function renderMermaidBlocks(root, options = {}) {
 
   if (!blocks.length || !isCurrent(root, revision)) {
     return { total: 0, rendered: 0, failed: 0 };
+  }
+
+  const capability = await getMermaidCapability();
+  if (!isCurrent(root, revision)) {
+    return { stale: true, rendered: 0, failed: 0 };
+  }
+  if (!capability.available) {
+    return showDependencyFallbackForAll(blocks, capability);
   }
 
   let renderedFromCache = 0;

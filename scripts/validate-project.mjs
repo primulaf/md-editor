@@ -35,7 +35,8 @@ const requiredIds = [
   'saveAsBtn',
   'exportHtmlBtn',
   'editModeBtn',
-  'sourceAccessDialog'
+  'sourceAccessDialog',
+  'mermaidInstallDialog'
 ];
 const missingIds = requiredIds.filter((id) => !ids.includes(id));
 if (missingIds.length) {
@@ -45,20 +46,43 @@ if (missingIds.length) {
 const requiredFiles = [
   'app.js',
   'mermaid-renderer.mjs',
+  'mermaid-capability.mjs',
+  'mermaid-capability.json',
   'background.js',
   'content.js',
   'style.css',
   'lib/markdown-it.min.js',
   'lib/purify.min.js',
   'lib/highlight.min.js',
-  'lib/mermaid/mermaid.esm.min.mjs'
+  'lib/mermaid/mermaid.esm.min.mjs',
+  'lib/mermaid/version.json'
 ];
 await Promise.all(requiredFiles.map((path) => access(new URL(path, root))));
+
+const capability = JSON.parse(await readText('mermaid-capability.json'));
+const dependencyManifest = JSON.parse(await readText('lib/mermaid/version.json'));
+if (capability.available !== true) {
+  throw new Error('源码工作区必须启用 Mermaid 能力标记');
+}
+for (const descriptor of [capability, dependencyManifest]) {
+  if (
+    descriptor.name !== 'mermaid'
+    || descriptor.version !== '11.16.0'
+    || descriptor.rendererApi !== 1
+  ) {
+    throw new Error('Mermaid 能力标记或依赖清单版本不匹配');
+  }
+}
 
 const mermaidChunks = (await readdir(new URL('lib/mermaid/chunks/mermaid.esm.min/', root)))
   .filter((name) => name.endsWith('.mjs'));
 if (mermaidChunks.length < 100) {
   throw new Error(`Mermaid 运行分块不完整：仅发现 ${mermaidChunks.length} 个`);
+}
+if (dependencyManifest.chunks !== mermaidChunks.length) {
+  throw new Error(
+    `Mermaid 依赖清单分块数不一致：清单 ${dependencyManifest.chunks}，实际 ${mermaidChunks.length}`
+  );
 }
 
 const mermaidEntry = await readText('lib/mermaid/mermaid.esm.min.mjs');

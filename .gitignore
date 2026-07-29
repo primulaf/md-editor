@@ -23,7 +23,10 @@ sessionStorage/
 dist/
 build/
 node_modules/
-md-editor-extension.zip
+md-editor-extension*.zip
+md-editor-full-*.zip
+md-editor-lite-*.zip
+md-editor-mermaid-*.zip
 
 # 环境变量文件
 .env

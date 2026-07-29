@@ -153,6 +153,25 @@
     </div>
   </div>
 
+  <div id="mermaidInstallDialog" class="filename-dialog" role="dialog" aria-modal="true" aria-labelledby="mermaidInstallDialogTitle" hidden>
+    <div class="filename-dialog-content mermaid-install-dialog-content">
+      <h3 id="mermaidInstallDialogTitle" class="filename-dialog-title">安装 Mermaid 图表组件</h3>
+      <div class="filename-dialog-body mermaid-install-body">
+        <p class="dialog-message">当前扩展未包含 Mermaid 运行库，因此图表以源码显示。补装组件不会改变扩展的其他功能。</p>
+        <ol>
+          <li>从 <a href="https://github.com/primulaf/md-editor/releases" target="_blank" rel="noopener noreferrer">项目 Releases</a> 或公司内网下载 <code>md-editor-mermaid-11.16.0.zip</code>。</li>
+          <li>把压缩包解压到此前加载到 Chrome 的扩展根目录，并允许合并目录。</li>
+          <li>确认文件路径为 <code>lib/mermaid/mermaid.esm.min.mjs</code>。</li>
+          <li>打开 <code>chrome://extensions</code>，找到 md. 并点击“重新加载”，然后刷新文档。</li>
+        </ol>
+        <p class="mermaid-install-warning">依赖包含可执行代码，请只使用项目 Release 或公司内网提供的文件，并核对发布页中的 SHA-256。</p>
+      </div>
+      <div class="filename-dialog-actions">
+        <button type="button" id="mermaidInstallCloseBtn" class="filename-btn primary">知道了</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 业务逻辑 -->
   <script src="./app.js"></script>
 </body>

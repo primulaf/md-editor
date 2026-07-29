@@ -29,6 +29,8 @@ const sourceAccessDialog = document.getElementById("sourceAccessDialog");
 const sourceAccessCancelBtn = document.getElementById("sourceAccessCancelBtn");
 const sourceAccessSaveAsBtn = document.getElementById("sourceAccessSaveAsBtn");
 const sourceAccessConnectBtn = document.getElementById("sourceAccessConnectBtn");
+const mermaidInstallDialog = document.getElementById("mermaidInstallDialog");
+const mermaidInstallCloseBtn = document.getElementById("mermaidInstallCloseBtn");
 
 const IS_MAC = navigator.platform.toUpperCase().includes('MAC');
 const STORAGE_KEY = "md-editor-content";
@@ -192,6 +194,21 @@ function hideSourceAccessDialog() {
   if (!sourceAccessDialog) return;
   sourceAccessDialog.hidden = true;
   sourceAccessDialog.style.display = 'none';
+}
+
+function showMermaidInstallDialog() {
+  if (!mermaidInstallDialog) return;
+  mermaidInstallDialog.hidden = false;
+  requestAnimationFrame(() => {
+    mermaidInstallDialog.style.display = 'flex';
+    mermaidInstallCloseBtn?.focus();
+  });
+}
+
+function hideMermaidInstallDialog() {
+  if (!mermaidInstallDialog) return;
+  mermaidInstallDialog.hidden = true;
+  mermaidInstallDialog.style.display = 'none';
 }
 
 /**
@@ -378,10 +395,8 @@ md.renderer.rules.fence = (tokens, index, options, env, renderer) => {
   const source = md.utils.escapeHtml(token.content || '');
   return [
     '<figure class="mermaid-block">',
-    '<div class="mermaid-canvas" aria-busy="true">',
-    '<span class="mermaid-loading">正在渲染图表...</span>',
-    '</div>',
-    `<pre class="mermaid-source" hidden><code>${source}</code></pre>`,
+    '<div class="mermaid-canvas" hidden></div>',
+    `<pre class="mermaid-source"><code class="language-mermaid">${source}</code></pre>`,
     '</figure>'
   ].join('');
 };
@@ -409,6 +424,7 @@ function showMermaidModuleError(revision, error) {
     const source = block.querySelector('.mermaid-source');
     block.classList.add('has-error');
     if (canvas) {
+      canvas.hidden = false;
       canvas.removeAttribute('aria-busy');
       canvas.replaceChildren();
 
@@ -464,6 +480,12 @@ async function ensureMermaidRendered() {
 function getExportPreviewHtml() {
   const clone = preview.cloneNode(true);
   clone.removeAttribute('data-mermaid-revision');
+  clone.querySelectorAll('.mermaid-dependency-notice').forEach((notice) => {
+    notice.remove();
+  });
+  clone.querySelectorAll('.mermaid-block.is-source-only .mermaid-canvas').forEach((canvas) => {
+    canvas.remove();
+  });
   clone.querySelectorAll('.mermaid-block.is-rendered .mermaid-source').forEach((source) => {
     source.remove();
   });
@@ -1925,6 +1947,12 @@ toc.addEventListener("click", (e) => {
  * 快捷键
  */
 document.addEventListener("keydown", (e) => {
+  if (e.key === 'Escape' && mermaidInstallDialog && !mermaidInstallDialog.hidden) {
+    e.preventDefault();
+    hideMermaidInstallDialog();
+    return;
+  }
+
   if (e.key === 'Escape' && sourceAccessDialog && !sourceAccessDialog.hidden) {
     e.preventDefault();
     hideSourceAccessDialog();
@@ -2010,6 +2038,18 @@ sourceAccessDialog?.addEventListener('click', (e) => {
   if (e.target === sourceAccessDialog) {
     hideSourceAccessDialog();
     updateDirtyIndicator();
+  }
+});
+
+mermaidInstallCloseBtn?.addEventListener('click', hideMermaidInstallDialog);
+mermaidInstallDialog?.addEventListener('click', (e) => {
+  if (e.target === mermaidInstallDialog) {
+    hideMermaidInstallDialog();
+  }
+});
+preview.addEventListener('click', (e) => {
+  if (e.target.closest('.mermaid-install-link')) {
+    showMermaidInstallDialog();
   }
 });
 

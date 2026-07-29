@@ -8,7 +8,9 @@
   },
   "scripts": {
     "vendor": "node scripts/sync-vendor.mjs",
-    "test": "node --check app.js && node --check mermaid-renderer.mjs && node --check background.js && node --check content.js && node --check scripts/sync-vendor.mjs && node scripts/validate-project.mjs"
+    "test": "node --check app.js && node --check mermaid-renderer.mjs && node --check mermaid-capability.mjs && node --check background.js && node --check content.js && node --check scripts/sync-vendor.mjs && node --check scripts/package-extension.mjs && node --check scripts/validate-dist.mjs && node --test tests/mermaid-capability.test.mjs && node scripts/validate-project.mjs",
+    "package": "npm test && node scripts/package-extension.mjs && node scripts/validate-dist.mjs",
+    "validate:dist": "node scripts/validate-dist.mjs"
   },
   "keywords": [],
   "author": "",
@@ -19,5 +21,8 @@
     "markdown-it": "^14.1.0",
     "markdown-it-anchor": "^9.2.0",
     "mermaid": "11.16.0"
+  },
+  "devDependencies": {
+    "fflate": "^0.8.2"
   }
 }
