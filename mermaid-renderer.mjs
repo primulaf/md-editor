@@ -280,6 +280,10 @@ function applySvg(block, svg) {
   svgElement.removeAttribute('height');
 
   const viewBox = svgElement.viewBox?.baseVal;
+  if (viewBox?.width > 0) {
+    svgElement.style.removeProperty('max-width');
+    svgElement.style.setProperty('--mermaid-width', `${Math.ceil(viewBox.width * 100) / 100}px`);
+  }
   const aspectRatio = viewBox?.height ? viewBox.width / viewBox.height : 0;
   block.classList.toggle('is-wide', aspectRatio > 2.4);
   block.classList.remove('has-error', 'is-source-only');

@@ -2,7 +2,7 @@
 
 离线 Markdown 阅读与编辑 Chrome 扩展。GitHub 风格白底界面，支持 Mermaid 图表、默认阅读、按需编辑、源文件保存、目录导航、图片粘贴和 HTML 导出，可直接打开本地 .md 文件。
 
-当前稳定版本：**v1.6.0**。可从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载扩展压缩包，详细改动见 [v1.6.0 版本说明](docs/releases/v1.6.0.md)。
+当前稳定版本：**v1.6.1**。可从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载扩展压缩包，详细改动见 [v1.6.1 版本说明](docs/releases/v1.6.1.md)。
 
 ## 功能
 
@@ -13,7 +13,7 @@
 - **实时编辑与预览** — 编辑区和预览区同步滚动，可调整双栏比例或单独显示
 - **可折叠目录** — 按标题层级展开或收起，单击跳转，滚动时自动高亮，长标题自适应省略
 - **GitHub 风格界面** — 白底黑字、系统字体、默认预览优先
-- **五档字号** — 小 / 中 / 大 / 特大 / 超大，侧边栏、编辑区和预览区同步缩放
+- **三档字号** — 小 / 中 / 大，侧边栏、编辑区和预览区同步缩放
 - **图片处理** — 支持粘贴、拖拽图片，自动转为 DataURL 内嵌
 - **HTML 导出** — 完整自包含 HTML 文件，保留样式和代码高亮
 - **拖拽 .md 文件** — 将 .md 文件拖入编辑器直接加载
@@ -27,12 +27,12 @@
 
 ### 方式一：加载发行包
 
-v1.6.0 提供两种扩展包，功能代码完全相同：
+v1.6.1 提供两种扩展包，功能代码完全相同：
 
 | 文件 | Mermaid | 适用场景 |
 |---|---|---|
-| `md-editor-full-1.6.0.zip` | 已包含，自动渲染 | 需要直接查看图表 |
-| `md-editor-lite-1.6.0.zip` | 未包含，显示源码 | 优先控制安装体积和运行内存 |
+| `md-editor-full-1.6.1.zip` | 已包含，自动渲染 | 需要直接查看图表 |
+| `md-editor-lite-1.6.1.zip` | 未包含，显示源码 | 优先控制安装体积和运行内存 |
 
 1. 从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载需要的扩展包并解压
 2. 打开 Chrome，地址栏输入 `chrome://extensions`

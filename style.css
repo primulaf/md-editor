@@ -37,9 +37,9 @@
   --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
   --duration-fast: 120ms;
 
-  --fs-ui: 13px;
-  --fs-editor: 13px;
-  --fs-preview: 13px;
+  --fs-ui: 15px;
+  --fs-editor: 17px;
+  --fs-preview: 17px;
 
   --grid-sidebar: 0px;
   --grid-editor: 1fr;
@@ -50,24 +50,12 @@
 }
 
 html[data-font-size="medium"] {
-  --fs-ui: 14px;
-  --fs-editor: 15px;
-  --fs-preview: 15px;
-}
-
-html[data-font-size="large"] {
-  --fs-ui: 15px;
-  --fs-editor: 17px;
-  --fs-preview: 17px;
-}
-
-html[data-font-size="xlarge"] {
   --fs-ui: 16px;
   --fs-editor: 19px;
   --fs-preview: 19px;
 }
 
-html[data-font-size="xxlarge"] {
+html[data-font-size="large"] {
   --fs-ui: 17px;
   --fs-editor: 21px;
   --fs-preview: 21px;
@@ -635,8 +623,10 @@ body { overflow: hidden; }
   min-height: 120px;
   max-width: 100%;
   padding: 16px;
-  overflow: auto;
-  overscroll-behavior: contain;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -648,12 +638,15 @@ body { overflow: hidden; }
 
 .mermaid-block.is-rendered .mermaid-canvas {
   align-items: flex-start;
+  justify-content: flex-start;
+  width: fit-content;
+  margin-inline: auto;
 }
 
 .mermaid-svg {
   display: block;
   flex: 0 0 auto;
-  width: auto;
+  width: var(--mermaid-width, auto);
   max-width: 100%;
   height: auto;
   margin: auto;

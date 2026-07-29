@@ -38,6 +38,7 @@ const STORAGE_FILE_NAME_KEY = "md-editor-file-name";
 const STORAGE_BASELINE_KEY = "md-editor-last-saved-content";
 const STORAGE_SOURCE_KIND_KEY = "md-editor-source-kind";
 const STORAGE_FONT_SIZE_KEY = "md-editor-font-size";
+const STORAGE_FONT_SIZE_VERSION_KEY = "md-editor-font-size-version";
 const LAYOUT_STORAGE_KEY = "md-editor-layout";
 const MERMAID_RENDER_DELAY = 450;
 
@@ -1048,13 +1049,19 @@ function initResizeHandle() {
 /**
  * 字号控制
  */
-const FONT_SIZE_TIERS = ['small', 'medium', 'large', 'xlarge', 'xxlarge'];
+const FONT_SIZE_TIERS = ['small', 'medium', 'large'];
 const FONT_SIZE_LABELS = {
   small: '字号：小',
   medium: '字号：中',
-  large: '字号：大',
-  xlarge: '字号：特大',
-  xxlarge: '字号：超大'
+  large: '字号：大'
+};
+const FONT_SIZE_STORAGE_VERSION = '2';
+const LEGACY_FONT_SIZE_MAP = {
+  small: 'small',
+  medium: 'small',
+  large: 'small',
+  xlarge: 'medium',
+  xxlarge: 'large'
 };
 
 function applyFontSize(tier) {
@@ -1062,6 +1069,7 @@ function applyFontSize(tier) {
   document.documentElement.setAttribute('data-font-size', validTier === 'small' ? '' : validTier);
   if (fontSizeBtn) fontSizeBtn.textContent = FONT_SIZE_LABELS[validTier];
   localStorage.setItem(STORAGE_FONT_SIZE_KEY, validTier);
+  localStorage.setItem(STORAGE_FONT_SIZE_VERSION_KEY, FONT_SIZE_STORAGE_VERSION);
   if (preview.querySelector('.mermaid-block')) {
     queueMermaidRender({ immediate: true });
   }
@@ -1075,8 +1083,12 @@ function toggleFontSize() {
 }
 
 function restoreFontSize() {
-  const saved = localStorage.getItem(STORAGE_FONT_SIZE_KEY) || 'small';
-  applyFontSize(saved);
+  const saved = localStorage.getItem(STORAGE_FONT_SIZE_KEY);
+  const version = localStorage.getItem(STORAGE_FONT_SIZE_VERSION_KEY);
+  const tier = version === FONT_SIZE_STORAGE_VERSION
+    ? saved
+    : LEGACY_FONT_SIZE_MAP[saved] || 'small';
+  applyFontSize(tier);
 }
 
 /**
@@ -1509,10 +1521,15 @@ function generateHtmlTemplate(title, renderedHtml) {
     .container .mermaid-canvas {
       display: flex;
       align-items: flex-start;
-      justify-content: center;
+      justify-content: flex-start;
       max-width: 100%;
+      width: fit-content;
+      margin-inline: auto;
       padding: 16px;
-      overflow: auto;
+      overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-x: contain;
+      overscroll-behavior-y: auto;
       background: #ffffff;
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -1520,7 +1537,7 @@ function generateHtmlTemplate(title, renderedHtml) {
     .container .mermaid-svg {
       display: block;
       flex: 0 0 auto;
-      width: auto;
+      width: var(--mermaid-width, auto);
       max-width: 100%;
       height: auto;
       margin: auto;
@@ -1693,52 +1710,85 @@ function newDocument() {
  * 默认示例内容
  */
 function defaultMarkdown() {
-  return `# md. — 离线 Markdown 编辑器
+  return `# md. — 离线 Markdown 阅读与编辑器
 
-欢迎使用 **md.**，一款精致的离线 Markdown 编辑工具。
+欢迎使用 **md.**。它可以直接阅读本地 Markdown 文件，需要修改时再进入编辑模式，所有内容均在本地处理。
 
-## 功能一览
+## 从阅读开始
+
+打开文档后默认显示全宽预览。需要修改时，点击预览区右上角的 **编辑文档**，即可显示编辑区并调整两栏比例。
+
+> **保存说明**：在工具内选择文件后，“保存”可写回已授权的文件；通过 Chrome 双击接管的文件，首次保存时需要重新选择源文件完成授权。“另存为”和“导出 HTML”不会覆盖原文件。
+
+## 当前功能
 
 | 功能 | 说明 |
 |---|---|
-| 编辑 | 实时 Markdown 编辑 |
-| 预览 | 同步渲染预览 |
-| 目录 | 折叠浏览与自动定位 |
-| 导出 | 一键导出 HTML |
-| 图片 | 拖拽 / 粘贴自动插入 |
-| 主题 | GitHub 风格白底阅读 |
+| 阅读与编辑 | GitHub 风格预览，按需打开编辑区 |
+| 文件操作 | 打开、保存、另存为和导出 HTML |
+| 目录导航 | 分级折叠、点击跳转、滚动高亮 |
+| 字号 | 小、中、大三档同步缩放 |
+| 多文档 | 标签页显示文件名，文档状态相互隔离 |
+| Mermaid | 完整包离线渲染，精简包保留源码 |
+| 图片 | 粘贴或拖入图片，自动内嵌到文档 |
 
-## 代码高亮
+## Mermaid 图表
+
+将代码围栏的语言标记为 \`mermaid\`，完整包会自动离线渲染图表；精简包会保留源码，并提供离线组件安装说明。
+
+### 阅读与编辑流程
+
+\`\`\`mermaid
+flowchart LR
+  A[打开文件] --> B[阅读模式]
+  B --> C{需要修改?}
+  C -- 是 --> D[编辑模式]
+  D --> E[保存更改]
+  C -- 否 --> F[继续阅读]
+\`\`\`
+
+### 文件保存过程
+
+\`\`\`mermaid
+sequenceDiagram
+  participant U as 用户
+  participant M as md.
+  participant F as 本地文件
+  U->>M: 打开文件
+  M-->>U: 显示阅读预览
+  U->>M: 编辑并保存
+  M->>F: 写回已授权文件
+  F-->>M: 保存完成
+\`\`\`
+
+导出 HTML 时，已渲染的图表会直接内嵌为 SVG。
+
+## Markdown 效果示例
+
+### 使用建议
+
+1. 使用侧栏目录快速定位长文档
+2. 根据阅读距离切换小、中、大字号
+3. 将图片粘贴或拖入编辑区完成内嵌
+
+### 代码高亮
 
 \`\`\`js
-function greet(name) {
-  return \`Hello, \${name}!\`;
+function documentMode(isEditing) {
+  return isEditing ? "编辑模式" : "阅读模式";
 }
 
-console.log(greet("md."));
+console.log(documentMode(false));
 \`\`\`
 
-\`\`\`python
-def fibonacci(n):
-    a, b = 0, 1
-    for _ in range(n):
-        yield a
-        a, b = b, a + b
-\`\`\`
+### 常用快捷键
 
-## 图片示例
-
-你可以：
-1. **直接粘贴**一张图片到编辑区
-2. **拖拽图片**到编辑区
-
-图片会自动转换为 Markdown 语法。
-
-## 链接
-
-https://www.markdownguide.org/
-
-> **提示** — ^S 保存 · ^E 导出 HTML · ^O 打开文件`;
+| 快捷键 | 操作 |
+|---|---|
+| Ctrl/Cmd + O | 打开文件 |
+| Ctrl/Cmd + S | 保存 Markdown |
+| Ctrl/Cmd + Shift + S | 另存为 Markdown |
+| Ctrl/Cmd + E | 导出 HTML |`;
 }
 
 /**
