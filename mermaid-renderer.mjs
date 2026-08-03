@@ -52,8 +52,8 @@ function hashSource(source) {
   return (hash >>> 0).toString(36);
 }
 
-function getCacheKey(source, index, fontSize) {
-  return `${index}:${fontSize}:${source.length}:${hashSource(source)}`;
+function getCacheKey(source, index, fontSize, theme) {
+  return `${theme}:${index}:${fontSize}:${source.length}:${hashSource(source)}`;
 }
 
 function readCache(key, source) {
@@ -100,6 +100,7 @@ function setLoading(block) {
   if (!canvas) return;
 
   block.querySelector('.mermaid-dependency-notice')?.remove();
+  block.querySelector('.mermaid-toolbar')?.remove();
   canvas.hidden = false;
   canvas.replaceChildren();
   canvas.setAttribute('aria-busy', 'true');
@@ -135,6 +136,7 @@ function hasBlockedResourceReference(source) {
 function showError(block, message, detail = '') {
   block.classList.remove('is-rendered', 'is-source-only', 'is-wide');
   block.classList.add('has-error');
+  block.querySelector('.mermaid-toolbar')?.remove();
 
   const canvas = block.querySelector('.mermaid-canvas');
   const source = block.querySelector('.mermaid-source');
@@ -161,6 +163,7 @@ function showError(block, message, detail = '') {
 function showDependencyFallback(block, capability, showNotice) {
   block.classList.remove('is-rendered', 'has-error', 'is-wide');
   block.classList.add('is-source-only');
+  block.querySelector('.mermaid-toolbar')?.remove();
 
   const canvas = block.querySelector('.mermaid-canvas');
   const source = block.querySelector('.mermaid-source');
@@ -267,6 +270,7 @@ function applySvg(block, svg) {
   if (!canvas) return;
 
   block.querySelector('.mermaid-dependency-notice')?.remove();
+  block.querySelector('.mermaid-toolbar')?.remove();
   canvas.hidden = false;
   canvas.innerHTML = svg;
   canvas.removeAttribute('aria-busy');
@@ -291,8 +295,9 @@ function applySvg(block, svg) {
   if (source) source.hidden = true;
 }
 
-function getMermaidConfig(fontSize) {
+function getMermaidConfig(fontSize, theme) {
   const diagramFontSize = `${Math.max(12, Math.round(fontSize))}px`;
+  const isDark = theme === 'dark';
   return {
     startOnLoad: false,
     securityLevel: 'strict',
@@ -319,22 +324,22 @@ function getMermaidConfig(fontSize) {
     htmlLabels: false,
     fontFamily: FONT_FAMILY,
     themeVariables: {
-      background: '#ffffff',
-      primaryColor: '#f6f8fa',
-      primaryTextColor: '#24292f',
-      primaryBorderColor: '#8c959f',
-      secondaryColor: '#ddf4ff',
-      secondaryTextColor: '#24292f',
-      secondaryBorderColor: '#54aeff',
-      tertiaryColor: '#fff8c5',
-      tertiaryTextColor: '#24292f',
-      tertiaryBorderColor: '#d4a72c',
-      lineColor: '#57606a',
-      textColor: '#24292f',
-      titleColor: '#24292f',
-      edgeLabelBackground: '#ffffff',
-      clusterBkg: '#f6f8fa',
-      clusterBorder: '#d0d7de',
+      background: isDark ? '#0d1117' : '#ffffff',
+      primaryColor: isDark ? '#21262d' : '#f6f8fa',
+      primaryTextColor: isDark ? '#e6edf3' : '#24292f',
+      primaryBorderColor: isDark ? '#8b949e' : '#8c959f',
+      secondaryColor: isDark ? '#0c2d48' : '#ddf4ff',
+      secondaryTextColor: isDark ? '#e6edf3' : '#24292f',
+      secondaryBorderColor: isDark ? '#58a6ff' : '#54aeff',
+      tertiaryColor: isDark ? '#3b2e08' : '#fff8c5',
+      tertiaryTextColor: isDark ? '#e6edf3' : '#24292f',
+      tertiaryBorderColor: isDark ? '#d29922' : '#d4a72c',
+      lineColor: isDark ? '#8b949e' : '#57606a',
+      textColor: isDark ? '#e6edf3' : '#24292f',
+      titleColor: isDark ? '#e6edf3' : '#24292f',
+      edgeLabelBackground: isDark ? '#0d1117' : '#ffffff',
+      clusterBkg: isDark ? '#161b22' : '#f6f8fa',
+      clusterBorder: isDark ? '#30363d' : '#d0d7de',
       fontFamily: FONT_FAMILY,
       fontSize: diagramFontSize
     },
@@ -351,7 +356,7 @@ function getMermaidConfig(fontSize) {
   };
 }
 
-async function getMermaid(fontSize) {
+async function getMermaid(fontSize, theme) {
   if (!mermaidModulePromise) {
     mermaidModulePromise = import(MERMAID_MODULE_URL)
       .then((module) => module.default || module)
@@ -362,20 +367,20 @@ async function getMermaid(fontSize) {
   }
 
   const mermaid = await mermaidModulePromise;
-  const signature = String(fontSize);
+  const signature = `${theme}:${fontSize}`;
   if (initializedConfigSignature !== signature) {
-    mermaid.initialize(getMermaidConfig(fontSize));
+    mermaid.initialize(getMermaidConfig(fontSize, theme));
     initializedConfigSignature = signature;
   }
   return mermaid;
 }
 
-async function renderPending(root, revision, pending, fontSize) {
+async function renderPending(root, revision, pending, fontSize, theme) {
   if (!isCurrent(root, revision)) return { stale: true };
 
   let mermaid;
   try {
-    mermaid = await getMermaid(fontSize);
+    mermaid = await getMermaid(fontSize, theme);
   } catch (error) {
     const connectedBlocks = pending
       .map(({ block }) => block)
@@ -418,6 +423,7 @@ async function renderPending(root, revision, pending, fontSize) {
 export async function renderMermaidBlocks(root, options = {}) {
   const revision = String(options.revision || '');
   const fontSize = Number(options.fontSize) || 14;
+  const theme = options.theme === 'dark' ? 'dark' : 'light';
   const delay = Math.max(0, Number(options.delay) || 0);
   const blocks = Array.from(root.querySelectorAll('.mermaid-block'));
 
@@ -460,7 +466,7 @@ export async function renderMermaidBlocks(root, options = {}) {
       return;
     }
 
-    const cacheKey = getCacheKey(source, index, fontSize);
+    const cacheKey = getCacheKey(source, index, fontSize, theme);
     const cachedSvg = readCache(cacheKey, source);
     if (cachedSvg) {
       try {
@@ -491,7 +497,7 @@ export async function renderMermaidBlocks(root, options = {}) {
     return { stale: true, rendered: renderedFromCache, failed };
   }
 
-  const task = () => renderPending(root, revision, pending, fontSize);
+  const task = () => renderPending(root, revision, pending, fontSize, theme);
   mermaidQueue = mermaidQueue.catch(() => undefined).then(task);
   const result = await mermaidQueue;
 

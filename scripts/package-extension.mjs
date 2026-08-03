@@ -16,8 +16,12 @@ const fixedTimestamp = new Date(1980, 0, 1);
 const packageItems = [
   'manifest.json',
   'index.html',
+  'theme-init.js',
   'app.js',
+  'recent-files.js',
+  'mermaid-tools.js',
   'image-assets.js',
+  'document-stats.js',
   'pending-file-storage.js',
   'mermaid-renderer.mjs',
   'mermaid-capability.mjs',
@@ -32,6 +36,8 @@ const packageItems = [
   'lib/highlight.min.js',
   'lib/markdown-it.min.js',
   'lib/markdownItAnchor.umd.js',
+  'lib/markdownItTaskLists.min.js',
+  'lib/markdownItFootnote.min.js',
   'lib/purify.min.js',
   'lib/mermaid'
 ];

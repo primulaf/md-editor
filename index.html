@@ -7,6 +7,8 @@
   <meta name="description" content="GitHub 风格离线 Markdown 阅读与编辑工具 — Mermaid 图表、目录导航、源文件保存和 HTML 导出">
   <meta name="author" content="md.">
 
+  <script src="./theme-init.js"></script>
+
   <!-- highlight.js 代码高亮主题（app.js 会动态切换这个链接） -->
   <link
     id="hljs-theme"
@@ -29,42 +31,54 @@
         <p>阅读 &middot; 编辑 &middot; 导出</p>
       </div>
 
-      <div class="toolbar" role="toolbar" aria-label="文档操作">
-        <button id="openBtn" type="button">打开</button>
-        <button id="saveBtn" type="button" class="primary edit-only">保存</button>
-        <button id="saveAsBtn" type="button" class="edit-only">另存为</button>
-        <button id="exportHtmlBtn" type="button">导出 HTML</button>
-        <button id="fontSizeBtn" type="button">字号：小</button>
-        <button id="newBtn" type="button">新建</button>
+      <div class="sidebar-controls">
+        <div class="toolbar-area">
+          <div class="toolbar" role="toolbar" aria-label="打开文档">
+            <button id="openBtn" class="sidebar-command" type="button">打开</button>
+            <button id="recentBtn" class="sidebar-command" type="button" aria-expanded="false" aria-controls="recentMenu" hidden>最近</button>
+            <button id="moreBtn" class="sidebar-command icon-tool" type="button" aria-label="更多文档操作" aria-expanded="false" aria-controls="moreMenu" title="更多文档操作"><span aria-hidden="true">···</span></button>
+          </div>
+          <div id="recentMenu" class="recent-menu" hidden>
+            <div class="recent-menu-title">最近文件</div>
+            <div id="recentList" class="recent-list"></div>
+          </div>
+          <div id="moreMenu" class="more-menu" aria-label="更多文档操作" hidden>
+            <button id="newBtn" type="button">新建文档</button>
+            <button id="exportHtmlBtn" type="button">导出 HTML</button>
+          </div>
+        </div>
+
+        <div class="edit-actions edit-only" role="toolbar" aria-label="保存文档">
+          <button id="saveBtn" type="button" class="sidebar-command primary">保存</button>
+          <button id="saveAsBtn" type="button" class="sidebar-command">另存为</button>
+        </div>
+
+        <div class="display-controls">
+          <span class="control-label">显示</span>
+          <div id="fontSizeControl" class="segmented-control" role="group" aria-label="文档字号">
+            <button type="button" data-font-size="small" aria-pressed="true">小</button>
+            <button type="button" data-font-size="medium" aria-pressed="false">中</button>
+            <button type="button" data-font-size="large" aria-pressed="false">大</button>
+          </div>
+          <button id="themeBtn" class="display-icon" type="button" aria-label="切换到深色模式" title="切换到深色模式"><span aria-hidden="true">☾</span></button>
+        </div>
       </div>
 
       <div class="toc-panel">
-        <div class="panel-title">目录</div>
+        <div class="panel-heading">
+          <div class="panel-title">目录</div>
+          <span id="statHeadings" class="toc-count" aria-label="0 个标题" title="0 个标题">0</span>
+        </div>
         <nav id="toc" class="toc" aria-label="文档目录">
           <div class="toc-empty">当前文档还没有标题</div>
         </nav>
       </div>
 
-      <div class="stats-panel">
-        <div class="panel-title">统计</div>
-        <div class="stats-grid">
-          <div class="stat-item">
-            <div class="stat-label">总字数</div>
-            <div id="statChars" class="stat-value">0</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">行数</div>
-            <div id="statLines" class="stat-value">0</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">标题数</div>
-            <div id="statHeadings" class="stat-value">0</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">阅读时间</div>
-            <div id="statReadTime" class="stat-value">0 分钟</div>
-          </div>
-        </div>
+      <div class="document-summary" aria-label="文档统计">
+        <span><span id="statWords" class="summary-value">0</span> 字</span>
+        <span aria-hidden="true">·</span>
+        <span id="statReadTime">少于 1 分钟</span>
+        <span class="summary-line edit-only"><span aria-hidden="true">·</span> <span id="statLines">0 行</span></span>
       </div>
     </aside>
 
@@ -129,6 +143,8 @@
   <!-- 第三方库：顺序不要乱 -->
   <script src="./lib/markdown-it.min.js"></script>
   <script src="./lib/markdownItAnchor.umd.js"></script>
+  <script src="./lib/markdownItTaskLists.min.js"></script>
+  <script src="./lib/markdownItFootnote.min.js"></script>
   <script src="./lib/purify.min.js"></script>
   <script src="./lib/highlight.min.js"></script>
 
@@ -184,6 +200,9 @@
   <!-- 业务逻辑 -->
   <script src="./pending-file-storage.js"></script>
   <script src="./image-assets.js"></script>
+  <script src="./document-stats.js"></script>
+  <script src="./recent-files.js"></script>
+  <script src="./mermaid-tools.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

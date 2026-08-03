@@ -6,7 +6,14 @@ const openBtn = document.getElementById("openBtn");
 const saveBtn = document.getElementById("saveBtn");
 const saveAsBtn = document.getElementById("saveAsBtn");
 const exportHtmlBtn = document.getElementById("exportHtmlBtn");
-const fontSizeBtn = document.getElementById("fontSizeBtn");
+const fontSizeControl = document.getElementById("fontSizeControl");
+const fontSizeButtons = document.querySelectorAll("[data-font-size]");
+const themeBtn = document.getElementById("themeBtn");
+const recentBtn = document.getElementById("recentBtn");
+const recentMenu = document.getElementById("recentMenu");
+const recentList = document.getElementById("recentList");
+const moreBtn = document.getElementById("moreBtn");
+const moreMenu = document.getElementById("moreMenu");
 const newBtn = document.getElementById("newBtn");
 const editModeBtn = document.getElementById("editModeBtn");
 const skipLink = document.getElementById("skipLink");
@@ -14,7 +21,7 @@ const fileNameEl = document.getElementById("fileName");
 const previewFileNameEl = document.getElementById("previewFileName");
 const statusEl = document.getElementById("status");
 
-const statChars = document.getElementById("statChars");
+const statWords = document.getElementById("statWords");
 const statLines = document.getElementById("statLines");
 const statHeadings = document.getElementById("statHeadings");
 const statReadTime = document.getElementById("statReadTime");
@@ -33,6 +40,7 @@ const mermaidInstallDialog = document.getElementById("mermaidInstallDialog");
 const mermaidInstallCloseBtn = document.getElementById("mermaidInstallCloseBtn");
 
 const IS_MAC = navigator.platform.toUpperCase().includes('MAC');
+const NUMBER_FORMATTER = new Intl.NumberFormat('zh-CN');
 const STORAGE_KEY = "md-editor-content";
 const STORAGE_FILE_NAME_KEY = "md-editor-file-name";
 const STORAGE_BASELINE_KEY = "md-editor-last-saved-content";
@@ -40,10 +48,20 @@ const STORAGE_SOURCE_KIND_KEY = "md-editor-source-kind";
 const STORAGE_FONT_SIZE_KEY = "md-editor-font-size";
 const STORAGE_FONT_SIZE_VERSION_KEY = "md-editor-font-size-version";
 const LAYOUT_STORAGE_KEY = "md-editor-layout";
+const THEME_STORAGE_KEY = "md-editor-theme";
 const IMAGE_ASSETS_STORAGE_KEY = "md-editor-image-assets";
 const MERMAID_RENDER_DELAY = 450;
 const RESIZE_HANDLE_WIDTH = 6;
 const imageAssetStore = window.mdImageAssets.createStore();
+const hljsThemeLink = document.getElementById("hljs-theme");
+let recentFilesStore = null;
+try {
+  if (window.mdRecentFiles?.isSupported(window)) {
+    recentFilesStore = window.mdRecentFiles.createStore();
+  }
+} catch (error) {
+  console.warn("最近文件存储不可用：", error);
+}
 
 const SOURCE_KIND = Object.freeze({
   NEW: 'new',
@@ -118,6 +136,8 @@ let imageAssetsPersistedRevision = -1;
 let imageAssetsSnapshotRevision = -1;
 let imageAssetsSnapshotJson = "";
 let imageAssetsBlockedRevision = -1;
+let recentEntries = [];
+let recentFilesDisabled = !recentFilesStore;
 
 // 文件名对话框状态
 let pendingFilenameCallback = null;
@@ -454,6 +474,14 @@ if (window.markdownitAnchor) {
   });
 }
 
+if (window.markdownitTaskLists) {
+  md.use(window.markdownitTaskLists, { enabled: false, label: false });
+}
+
+if (window.markdownitFootnote) {
+  md.use(window.markdownitFootnote);
+}
+
 const defaultFenceRenderer = md.renderer.rules.fence;
 md.renderer.rules.fence = (tokens, index, options, env, renderer) => {
   const token = tokens[index];
@@ -473,6 +501,55 @@ md.renderer.rules.fence = (tokens, index, options, env, renderer) => {
 
 function getPreviewFontSize() {
   return parseFloat(getComputedStyle(preview).fontSize) || 14;
+}
+
+function getCurrentTheme() {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+function updateThemeControl(theme) {
+  if (!themeBtn) return;
+  const isDark = theme === "dark";
+  const nextLabel = isDark ? "切换到浅色模式" : "切换到深色模式";
+  themeBtn.setAttribute("aria-label", nextLabel);
+  themeBtn.title = nextLabel;
+  const icon = themeBtn.querySelector("span");
+  if (icon) icon.textContent = isDark ? "☀" : "☾";
+}
+
+function applyTheme(theme, options = {}) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  const previousTheme = getCurrentTheme();
+  document.documentElement.dataset.theme = nextTheme;
+  updateThemeControl(nextTheme);
+
+  const themeHref = nextTheme === "dark"
+    ? "./lib/github-dark.min.css"
+    : "./lib/github.min.css";
+  if (hljsThemeLink?.getAttribute("href") !== themeHref) {
+    hljsThemeLink.setAttribute("href", themeHref);
+  }
+
+  if (options.persist !== false) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    } catch (error) {
+      console.warn("Unable to persist theme:", error);
+    }
+  }
+
+  if (options.rerender !== false && previousTheme !== nextTheme) {
+    getMermaidRendererModule()
+      .then((module) => {
+        module.clearMermaidCache();
+        queueMermaidRender({ immediate: true, force: true });
+      })
+      .catch((error) => showMermaidModuleError(preview.dataset.mermaidRevision, error));
+  }
+}
+
+function toggleTheme() {
+  applyTheme(getCurrentTheme() === "dark" ? "light" : "dark");
 }
 
 function getMermaidRendererModule() {
@@ -529,11 +606,21 @@ function queueMermaidRender(options = {}) {
   }
 
   activeMermaidRenderPromise = getMermaidRendererModule()
-    .then((module) => module.renderMermaidBlocks(preview, {
-      revision,
-      fontSize: getPreviewFontSize(),
-      delay: immediate ? 0 : MERMAID_RENDER_DELAY
-    }))
+    .then(async (module) => {
+      const result = await module.renderMermaidBlocks(preview, {
+        revision,
+        fontSize: getPreviewFontSize(),
+        theme: getCurrentTheme(),
+        delay: immediate ? 0 : MERMAID_RENDER_DELAY
+      });
+      if (preview.dataset.mermaidRevision === revision && !result.stale) {
+        window.mdMermaidTools?.enhanceMermaidBlocks(preview, {
+          getFileName: () => currentFileName,
+          onStatus: setStatus
+        });
+      }
+      return result;
+    })
     .catch((error) => {
       showMermaidModuleError(revision, error);
       return { total: 0, rendered: 0, failed: 1 };
@@ -549,6 +636,7 @@ async function ensureMermaidRendered() {
 
 function getExportPreviewHtml() {
   const clone = preview.cloneNode(true);
+  window.mdMermaidTools?.cleanExportClone(clone);
   clone.removeAttribute('data-mermaid-revision');
   clone.querySelectorAll('.mermaid-dependency-notice').forEach((notice) => {
     notice.remove();
@@ -624,6 +712,7 @@ function renderMarkdown(force) {
         buildToc();
       }
 
+      updateStats(currentSource, cachedHeadings.length);
       updateActiveTocOnScroll();
       // 渲染成功后同步修改状态，避免渲染提示覆盖保存状态。
       if (lastSavedContent !== null) {
@@ -872,17 +961,24 @@ function updateActiveTocOnScroll() {
 /**
  * 更新统计信息
  */
-function updateStats() {
-  const content = editor.value || "";
-  const lines = content ? content.split(/\r?\n/).length : 0;
-  const chars = content.replace(/\s+/g, "").length;
-  const headingCount = (content.match(/^#{1,6}\s+/gm) || []).length;
-  const minutes = Math.max(1, Math.ceil(chars / 300));
+function updateStats(content = editor.value || "", renderedHeadingCount = null) {
+  const stats = window.mdDocumentStats.calculateDocumentStats(content);
+  const headingCount = Number.isInteger(renderedHeadingCount)
+    ? renderedHeadingCount
+    : stats.headingCount;
 
-  if (statChars) statChars.textContent = String(chars);
-  if (statLines) statLines.textContent = String(lines);
-  if (statHeadings) statHeadings.textContent = String(headingCount);
-  if (statReadTime) statReadTime.textContent = `${minutes} 分钟`;
+  if (statWords) statWords.textContent = NUMBER_FORMATTER.format(stats.wordCount);
+  if (statLines) statLines.textContent = `${NUMBER_FORMATTER.format(stats.lineCount)} 行`;
+  if (statHeadings) {
+    const formattedCount = NUMBER_FORMATTER.format(headingCount);
+    const label = `${formattedCount} 个标题`;
+    statHeadings.textContent = formattedCount;
+    statHeadings.setAttribute('aria-label', label);
+    statHeadings.title = label;
+  }
+  if (statReadTime) {
+    statReadTime.textContent = window.mdDocumentStats.formatReadingTime(stats.readingMinutes);
+  }
 }
 
 /**
@@ -1063,6 +1159,8 @@ function updateLayout() {
  * 切换侧边栏
  */
 function toggleSidebar() {
+  setRecentMenuOpen(false);
+  setMoreMenuOpen(false);
   layout.sidebarVisible = !layout.sidebarVisible;
   updateLayout();
 }
@@ -1194,11 +1292,6 @@ function initResizeHandle() {
  * 字号控制
  */
 const FONT_SIZE_TIERS = ['small', 'medium', 'large'];
-const FONT_SIZE_LABELS = {
-  small: '字号：小',
-  medium: '字号：中',
-  large: '字号：大'
-};
 const FONT_SIZE_STORAGE_VERSION = '2';
 const LEGACY_FONT_SIZE_MAP = {
   small: 'small',
@@ -1211,19 +1304,14 @@ const LEGACY_FONT_SIZE_MAP = {
 function applyFontSize(tier) {
   const validTier = FONT_SIZE_TIERS.includes(tier) ? tier : 'small';
   document.documentElement.setAttribute('data-font-size', validTier === 'small' ? '' : validTier);
-  if (fontSizeBtn) fontSizeBtn.textContent = FONT_SIZE_LABELS[validTier];
+  fontSizeButtons.forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.fontSize === validTier));
+  });
   localStorage.setItem(STORAGE_FONT_SIZE_KEY, validTier);
   localStorage.setItem(STORAGE_FONT_SIZE_VERSION_KEY, FONT_SIZE_STORAGE_VERSION);
   if (preview.querySelector('.mermaid-block')) {
     queueMermaidRender({ immediate: true });
   }
-}
-
-function toggleFontSize() {
-  const current = document.documentElement.getAttribute('data-font-size') || 'small';
-  const idx = FONT_SIZE_TIERS.indexOf(current);
-  const next = FONT_SIZE_TIERS[(idx + 1) % FONT_SIZE_TIERS.length];
-  applyFontSize(next);
 }
 
 function restoreFontSize() {
@@ -1282,6 +1370,234 @@ function reportFileError(error, action) {
   }
 }
 
+function positionRecentMenu() {
+  if (!recentBtn || !recentMenu || recentMenu.hidden) return;
+  const anchor = recentBtn.closest('.toolbar-area') || recentBtn;
+  const rect = anchor.getBoundingClientRect();
+  const position = window.mdRecentFiles.calculateMenuPosition(
+    rect,
+    { width: recentMenu.offsetWidth, height: recentMenu.offsetHeight },
+    { width: window.innerWidth, height: window.innerHeight }
+  );
+  recentMenu.style.left = `${position.left}px`;
+  recentMenu.style.top = `${position.top}px`;
+}
+
+function setMoreMenuOpen(open) {
+  if (!moreBtn || !moreMenu) return;
+  const shouldOpen = Boolean(open);
+  moreMenu.hidden = !shouldOpen;
+  moreBtn.setAttribute('aria-expanded', String(shouldOpen));
+  if (shouldOpen) setRecentMenuOpen(false);
+}
+
+function setRecentMenuOpen(open) {
+  if (!recentBtn || !recentMenu) return;
+  const shouldOpen = Boolean(open && recentEntries.length);
+  recentMenu.hidden = !shouldOpen;
+  recentBtn.setAttribute('aria-expanded', String(shouldOpen));
+  if (shouldOpen) {
+    setMoreMenuOpen(false);
+    positionRecentMenu();
+  }
+}
+
+function formatRecentFileMeta(entry) {
+  const date = new Date(entry.openedAt);
+  const time = Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+  const source = entry.fileUrl && !entry.handle
+    ? '关联打开 · 保存需授权'
+    : '工具内打开';
+  return time ? `${source} · ${time}` : source;
+}
+
+function renderRecentFiles() {
+  if (!recentBtn || !recentList) return;
+  recentBtn.hidden = recentFilesDisabled || recentEntries.length === 0;
+  recentList.replaceChildren();
+
+  recentEntries.forEach((entry) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'recent-file';
+    button.dataset.recentId = entry.id;
+    button.title = entry.name;
+
+    const name = document.createElement('span');
+    name.className = 'recent-file-name';
+    name.textContent = entry.name;
+
+    const meta = document.createElement('span');
+    meta.className = 'recent-file-meta';
+    meta.textContent = formatRecentFileMeta(entry);
+
+    button.append(name, meta);
+    recentList.appendChild(button);
+  });
+
+  if (recentEntries.length === 0) setRecentMenuOpen(false);
+}
+
+function disableRecentFiles(error) {
+  if (error) console.warn('最近文件功能已停用：', error);
+  recentFilesDisabled = true;
+  recentEntries = [];
+  renderRecentFiles();
+}
+
+async function refreshRecentFiles() {
+  if (recentFilesDisabled || !recentFilesStore) return;
+  try {
+    recentEntries = await recentFilesStore.list();
+    renderRecentFiles();
+  } catch (error) {
+    disableRecentFiles(error);
+  }
+}
+
+async function rememberRecentFile(handle, file) {
+  if (recentFilesDisabled || !recentFilesStore || !window.mdRecentFiles.isFileHandle(handle)) return;
+  try {
+    recentEntries = await recentFilesStore.upsert(handle, file);
+    renderRecentFiles();
+  } catch (error) {
+    disableRecentFiles(error);
+  }
+}
+
+async function rememberRecentUrl(fileUrl, metadata) {
+  if (recentFilesDisabled || !recentFilesStore) return;
+  const normalizedUrl = window.mdRecentFiles.normalizeFileUrl(fileUrl);
+  if (!normalizedUrl) return;
+  try {
+    recentEntries = await recentFilesStore.upsertUrl(normalizedUrl, metadata);
+    renderRecentFiles();
+  } catch (error) {
+    disableRecentFiles(error);
+  }
+}
+
+async function removeRecentFile(id) {
+  if (recentFilesDisabled || !recentFilesStore) return;
+  try {
+    await recentFilesStore.remove(id);
+    recentEntries = recentEntries.filter((entry) => entry.id !== id);
+    renderRecentFiles();
+  } catch (error) {
+    disableRecentFiles(error);
+  }
+}
+
+async function requestFilePermission(handle, mode) {
+  if (!handle || typeof handle.queryPermission !== 'function') return 'granted';
+  const options = { mode };
+  let permission = await handle.queryPermission(options);
+  if (permission === 'prompt' && typeof handle.requestPermission === 'function') {
+    permission = await handle.requestPermission(options);
+  }
+  return permission;
+}
+
+async function canReadAssociatedFiles() {
+  if (typeof chrome === 'undefined' || !chrome.extension?.isAllowedFileSchemeAccess) {
+    return false;
+  }
+  return chrome.extension.isAllowedFileSchemeAccess();
+}
+
+async function fetchLocalFileBuffer(fileUrl) {
+  try {
+    const response = await fetch(fileUrl, { cache: 'no-store' });
+    if (response.ok) return response.arrayBuffer();
+  } catch {
+    // Some Chrome versions expose local files to extension XHR but not fetch.
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('GET', fileUrl, true);
+    request.responseType = 'arraybuffer';
+    request.onload = () => {
+      if ((request.status === 0 || request.status < 400) && request.response) {
+        resolve(request.response);
+      } else {
+        reject(new Error(`Local file request failed with status ${request.status}`));
+      }
+    };
+    request.onerror = () => reject(new Error('Local file request failed'));
+    request.send();
+  });
+}
+
+async function openAssociatedRecentFile(entry) {
+  if (!(await canReadAssociatedFiles())) {
+    setStatus('请先在扩展详情中开启“允许访问文件网址”', 'notice');
+    return;
+  }
+
+  try {
+    const fileUrl = window.mdRecentFiles.normalizeFileUrl(entry.fileUrl);
+    if (!fileUrl) throw new Error('Invalid local Markdown file URL');
+    const buffer = await fetchLocalFileBuffer(fileUrl);
+    const file = new File([buffer], entry.name, {
+      type: 'text/markdown',
+      lastModified: 0
+    });
+    if (await loadSelectedMarkdown(file, null, SOURCE_KIND.UNLINKED)) {
+      await rememberRecentUrl(fileUrl, { name: file.name, size: file.size });
+      setStatus('已重新读取关联文件 · 编辑后保存仍需选择源文件', 'notice');
+    }
+  } catch (error) {
+    console.warn('无法重新读取关联文件：', error);
+    await removeRecentFile(entry.id);
+    setStatus(`无法读取“${entry.name}”，文件可能已移动，记录已移除`, 'notice');
+  }
+}
+
+async function openRecentFile(id) {
+  const entry = recentEntries.find((item) => item.id === id);
+  if (!entry || !confirmDocumentReplacement('打开最近文件')) return;
+  setRecentMenuOpen(false);
+
+  if (entry.fileUrl && !entry.handle) {
+    await openAssociatedRecentFile(entry);
+    return;
+  }
+
+  try {
+    const writePermission = await requestFilePermission(entry.handle, 'readwrite');
+    const readPermission = writePermission === 'granted'
+      ? 'granted'
+      : await requestFilePermission(entry.handle, 'read');
+    if (readPermission !== 'granted') {
+      await removeRecentFile(entry.id);
+      setStatus(`未获得“${entry.name}”的读取权限，已从最近文件移除`, 'notice');
+      return;
+    }
+
+    const file = await entry.handle.getFile();
+    const linked = writePermission === 'granted';
+    const loaded = await loadSelectedMarkdown(
+      file,
+      linked ? entry.handle : null,
+      linked ? SOURCE_KIND.LINKED : SOURCE_KIND.UNLINKED
+    );
+    if (loaded) await rememberRecentFile(entry.handle, file);
+  } catch (error) {
+    if (error?.name === 'NotFoundError' || error?.name === 'NotAllowedError') {
+      await removeRecentFile(entry.id);
+      setStatus(`无法再访问“${entry.name}”，已从最近文件移除`, 'notice');
+      return;
+    }
+    reportFileError(error, '打开最近文件');
+  }
+}
+
 async function readMarkdownFile(file) {
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
@@ -1331,8 +1647,10 @@ async function loadSelectedMarkdown(file, handle = null, nextSourceKind = SOURCE
   try {
     const fileData = await readMarkdownFile(file);
     applyLoadedDocument(file, fileData, handle, nextSourceKind);
+    return true;
   } catch (error) {
     reportFileError(error, '打开文件');
+    return false;
   }
 }
 
@@ -1347,7 +1665,9 @@ async function openMarkdownFile() {
   try {
     const [handle] = await window.showOpenFilePicker(MARKDOWN_FILE_OPTIONS);
     const file = await handle.getFile();
-    await loadSelectedMarkdown(file, handle, SOURCE_KIND.LINKED);
+    if (await loadSelectedMarkdown(file, handle, SOURCE_KIND.LINKED)) {
+      await rememberRecentFile(handle, file);
+    }
   } catch (error) {
     if (isUnsupportedFileSystemAccess(error)) {
       fileSystemAccessDisabled = true;
@@ -1422,6 +1742,7 @@ async function writeCurrentDocumentToHandle(handle, options = {}) {
     persist();
     updateDirtyIndicator();
     setStatus(`已保存到 ${currentFileName}`, 'success');
+    await rememberRecentFile(handle, savedFile);
     return true;
   } catch (error) {
     if (writable && typeof writable.abort === 'function') {
@@ -1648,6 +1969,32 @@ function generateHtmlTemplate(title, renderedHtml) {
       border-radius: 0;
       color: var(--muted);
     }
+    .container .contains-task-list,
+    .container .task-list-item {
+      list-style: none;
+    }
+    .container .contains-task-list { padding-left: 0.35em; }
+    .container .task-list-item-checkbox {
+      width: 1em;
+      height: 1em;
+      margin: 0 0.5em 0 -0.05em;
+      accent-color: var(--accent);
+      vertical-align: -0.08em;
+      opacity: 1;
+    }
+    .container .footnotes {
+      margin-top: 2.2em;
+      padding-top: 0.8em;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.88em;
+    }
+    .container .footnotes-sep { display: none; }
+    .container .footnotes-list { padding-left: 1.6em; }
+    .container .footnote-item { scroll-margin-top: 24px; }
+    .container .footnote-item p { margin: 0.35em 0; }
+    .container .footnote-ref { font-size: 0.78em; }
+    .container .footnote-backref { margin-left: 0.25em; }
     .container table {
       border-collapse: collapse;
       width: 100%;
@@ -1896,7 +2243,10 @@ function defaultMarkdown() {
 | 目录导航 | 分级折叠、点击跳转、滚动高亮 |
 | 字号 | 小、中、大三档同步缩放 |
 | 多文档 | 标签页显示文件名，文档状态相互隔离 |
-| Mermaid | 内置完整运行库并离线渲染，组件异常时保留源码 |
+| 最近文件 | 记录工具内打开和双击关联文件，便于再次访问 |
+| 明暗主题 | 在 GitHub 风格浅色与深色模式间切换 |
+| Markdown 扩展 | 支持只读任务列表和可往返跳转的脚注 |
+| Mermaid | 离线渲染，并支持缩放及下载 SVG / PNG |
 | 图片 | 粘贴或拖入图片，编辑时显示短引用，保存时自动内嵌 |
 
 ## Mermaid 图表
@@ -1928,15 +2278,19 @@ sequenceDiagram
   F-->>M: 保存完成
 \`\`\`
 
-导出 HTML 时，已渲染的图表会直接内嵌为 SVG。
+将鼠标移入图表可使用缩放和下载工具。导出 HTML 时，图表仍以原始比例直接内嵌为 SVG。
 
 ## Markdown 效果示例
 
 ### 使用建议
 
-1. 使用侧栏目录快速定位长文档
-2. 根据阅读距离切换小、中、大字号
-3. 将图片粘贴或拖入编辑区完成内嵌
+- [x] 使用侧栏目录快速定位长文档
+- [x] 根据阅读距离切换小、中、大字号
+- [ ] 将图片粘贴或拖入编辑区完成内嵌
+
+所有解析、渲染和文件操作都在本地完成[^offline]。
+
+[^offline]: 扩展不依赖 CDN；Mermaid 图表也由随包提供的本地运行库处理。
 
 ### 代码高亮
 
@@ -2090,11 +2444,12 @@ editor.addEventListener("drop", async (e) => {
         console.warn('无法取得拖入文件的句柄：', error);
       }
     }
-    await loadSelectedMarkdown(
+    const loaded = await loadSelectedMarkdown(
       mdFile,
       handle,
       handle ? SOURCE_KIND.LINKED : SOURCE_KIND.UNLINKED
     );
+    if (loaded && handle) await rememberRecentFile(handle, mdFile);
     return;
   }
 
@@ -2243,9 +2598,29 @@ document.addEventListener("keydown", (e) => {
 openBtn?.addEventListener("click", openMarkdownFile);
 saveBtn?.addEventListener("click", saveMarkdownFile);
 saveAsBtn?.addEventListener("click", saveMarkdownAs);
-exportHtmlBtn?.addEventListener("click", exportHtmlFile);
-fontSizeBtn?.addEventListener("click", toggleFontSize);
-newBtn?.addEventListener("click", newDocument);
+exportHtmlBtn?.addEventListener("click", () => {
+  setMoreMenuOpen(false);
+  exportHtmlFile();
+});
+fontSizeControl?.addEventListener("click", (event) => {
+  const button = event.target.closest('[data-font-size]');
+  if (button) applyFontSize(button.dataset.fontSize);
+});
+themeBtn?.addEventListener("click", toggleTheme);
+recentBtn?.addEventListener('click', () => {
+  setRecentMenuOpen(recentMenu?.hidden);
+});
+moreBtn?.addEventListener('click', () => {
+  setMoreMenuOpen(moreMenu?.hidden);
+});
+recentList?.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-recent-id]');
+  if (button) openRecentFile(button.dataset.recentId);
+});
+newBtn?.addEventListener("click", () => {
+  setMoreMenuOpen(false);
+  newDocument();
+});
 editModeBtn?.addEventListener("click", toggleEditingMode);
 
 // 布局控制事件
@@ -2309,6 +2684,30 @@ preview.addEventListener('click', (e) => {
   }
 });
 
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.toolbar-area')) {
+    setRecentMenuOpen(false);
+    setMoreMenuOpen(false);
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  if (!recentMenu?.hidden) {
+    setRecentMenuOpen(false);
+    recentBtn?.focus();
+  } else if (!moreMenu?.hidden) {
+    setMoreMenuOpen(false);
+    moreBtn?.focus();
+  }
+});
+
+window.addEventListener('resize', positionRecentMenu);
+sidebarEl?.addEventListener('scroll', () => {
+  setRecentMenuOpen(false);
+  setMoreMenuOpen(false);
+}, { passive: true });
+
 const renderAfterInput = debounce(renderMarkdown, 200);
 editor.addEventListener("input", () => {
   compactEditorImages();
@@ -2338,11 +2737,19 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-// 低频周期：持久化 + 统计（避免每 200ms 渲染时都执行）
+window.addEventListener("storage", (event) => {
+  if (
+    event.key === THEME_STORAGE_KEY
+    && (event.newValue === "light" || event.newValue === "dark")
+  ) {
+    applyTheme(event.newValue, { persist: false });
+  }
+});
+
+// 低频周期：仅持久化；统计由内容渲染触发，避免重复扫描未变化文档。
 const persistInterval = setInterval(() => {
   if (isPageVisible) {
     persist();
-    updateStats();
   }
 }, 2000);
 
@@ -2367,12 +2774,14 @@ window.addEventListener('beforeunload', (e) => {
 /**
  * 初始化
  */
+applyTheme(getCurrentTheme(), { persist: false, rerender: false });
 restoreFontSize();
 restore();
 restoreLayoutState();
 showPreviewOnly();
 renderMarkdown(true);
 updateStats();
+refreshRecentFiles();
 if (restoredMissingImageAssets.length) {
   requestAnimationFrame(() => {
     setStatus(
@@ -2384,7 +2793,7 @@ if (restoredMissingImageAssets.length) {
 
 // 文件关联启动：通过 URL 参数 ?file=<nonce> 识别来自 content script 的加载
 // 避免 chrome.storage.local 残留污染正常打开的标签页
-function loadFileContent(content, filename) {
+function loadFileContent(content, filename, fileUrl = '') {
   const normalizedContent = String(content || '').replace(/\r\n?/g, '\n');
   editor.value = resetImageAssetsWithContent(normalizedContent);
   currentFileName = filename || '未命名文档.md';
@@ -2402,6 +2811,10 @@ function loadFileContent(content, filename) {
   updateStats();
   persist();
   updateDirtyIndicator();
+  rememberRecentUrl(fileUrl, {
+    name: currentFileName,
+    size: String(content || '').length
+  });
 }
 
 (function initializePendingFileStorage() {
@@ -2430,7 +2843,11 @@ function loadFileContent(content, filename) {
       const legacyContent = data[legacyContentKey];
 
       if (pendingFiles.isFreshEnvelope(envelope)) {
-        loadFileContent(envelope.content, envelope.name || 'untitled.md');
+        loadFileContent(
+          envelope.content,
+          envelope.name || 'untitled.md',
+          envelope.fileUrl || ''
+        );
       } else if (typeof legacyContent === 'string') {
         loadFileContent(legacyContent, data[legacyNameKey] || 'untitled.md');
       } else {

@@ -4,7 +4,7 @@ This repository is a Manifest V3 Chrome extension for offline Markdown reading a
 
 ## Project Structure & Module Organization
 
-- Root source: `manifest.json` (MV3 config), `index.html` (UI), `style.css`, `app.js` (all editor logic), `image-assets.js` (image DataURL compaction), `pending-file-storage.js` (associated-file handoff cleanup), `mermaid-renderer.mjs` and `mermaid-capability.mjs` (Mermaid rendering and capability detection), `background.js` (service worker), `content.js` (file reading).
+- Root source: `manifest.json` (MV3 config), `index.html` (UI), `style.css`, `app.js` (editor integration), `image-assets.js` (image DataURL compaction), `document-stats.js` (readable-content statistics), `recent-files.js` (persistent handles and associated file URLs), `pending-file-storage.js` (associated-file handoff cleanup), `mermaid-renderer.mjs`, `mermaid-capability.mjs`, and `mermaid-tools.js` (Mermaid rendering, detection, and controls), `background.js` (service worker), `content.js` (file reading).
 - `lib/`: vendored third-party dependencies (markdown-it, DOMPurify, highlight.js, Mermaid). Keep versions pinned; never edit vendored files directly.
 - `tests/`: Node test suites plus fixtures in `tests/fixtures/`.
 - `scripts/`: dependency sync, packaging, and validation (`sync-vendor.mjs`, `package-extension.mjs`, `validate-*.mjs`).

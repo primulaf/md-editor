@@ -15,6 +15,19 @@ test('creates and validates a pending file envelope', () => {
     false
   );
   assert.equal(pendingFiles.isValidEnvelope({ content: '', name: 'empty.md' }), false);
+
+  const associated = pendingFiles.createEnvelope(
+    '# local',
+    'local.md',
+    1000,
+    'file:///C:/Docs/local.md'
+  );
+  assert.equal(associated.fileUrl, 'file:///C:/Docs/local.md');
+  assert.equal(pendingFiles.isValidEnvelope(associated), true);
+  assert.equal(pendingFiles.isValidEnvelope({
+    ...associated,
+    fileUrl: 'https://example.com/local.md'
+  }), false);
 });
 
 test('normalizes storage and alarm keys from a nonce', () => {

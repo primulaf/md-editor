@@ -47,12 +47,28 @@
     return normalizeNonce(value.slice(CLEANUP_ALARM_PREFIX.length));
   }
 
-  function createEnvelope(content, name, timestamp = Date.now()) {
-    return {
+  function normalizeFileUrl(value) {
+    try {
+      const url = new URL(String(value || ""));
+      const pathname = decodeURIComponent(url.pathname || "");
+      if (url.protocol !== "file:" || !/\.(?:md|markdown)$/i.test(pathname)) return "";
+      url.hash = "";
+      url.search = "";
+      return url.href;
+    } catch {
+      return "";
+    }
+  }
+
+  function createEnvelope(content, name, timestamp = Date.now(), fileUrl = "") {
+    const envelope = {
       content: String(content || ""),
       name: String(name || "untitled.md"),
       ts: Number(timestamp)
     };
+    const normalizedUrl = normalizeFileUrl(fileUrl);
+    if (normalizedUrl) envelope.fileUrl = normalizedUrl;
+    return envelope;
   }
 
   function isValidEnvelope(value) {
@@ -61,6 +77,7 @@
       && typeof value === "object"
       && typeof value.content === "string"
       && typeof value.name === "string"
+      && (value.fileUrl === undefined || normalizeFileUrl(value.fileUrl) === value.fileUrl)
       && Number.isFinite(value.ts)
       && value.ts > 0
     );
@@ -116,6 +133,7 @@
     legacyNameKey,
     nonceFromCleanupAlarm,
     normalizeNonce,
+    normalizeFileUrl,
     pendingKey
   };
 });

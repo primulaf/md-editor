@@ -17,7 +17,7 @@
   }
 
   chrome.storage.local.set(
-    { [storageKey]: pendingFiles.createEnvelope(content, filename) },
+    { [storageKey]: pendingFiles.createEnvelope(content, filename, Date.now(), window.location.href) },
     () => {
       if (chrome.runtime.lastError) {
         console.error('Failed to store file content:', chrome.runtime.lastError.message);

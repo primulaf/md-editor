@@ -8,6 +8,8 @@ const outputChunks = new URL('chunks/mermaid.esm.min/', outputRoot);
 const browserVendorFiles = [
   ['node_modules/markdown-it/dist/markdown-it.min.js', 'lib/markdown-it.min.js'],
   ['node_modules/markdown-it-anchor/dist/markdownItAnchor.umd.js', 'lib/markdownItAnchor.umd.js'],
+  ['node_modules/markdown-it-task-lists/dist/markdown-it-task-lists.min.js', 'lib/markdownItTaskLists.min.js'],
+  ['node_modules/markdown-it-footnote/dist/markdown-it-footnote.min.js', 'lib/markdownItFootnote.min.js'],
   ['node_modules/dompurify/dist/purify.min.js', 'lib/purify.min.js']
 ];
 

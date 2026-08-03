@@ -1,12 +1,15 @@
 # md.
 
-离线 Markdown 阅读与编辑 Chrome 扩展。GitHub 风格白底界面，支持 Mermaid 图表、默认阅读、按需编辑、源文件保存、目录导航、图片粘贴和 HTML 导出，可直接打开本地 .md 文件。
+离线 Markdown 阅读与编辑 Chrome 扩展。采用 GitHub 风格明暗主题，支持 Mermaid 图表、最近文件、任务列表、脚注、源文件保存、目录导航、图片粘贴和 HTML 导出，可直接打开本地 .md 文件。
 
-当前稳定版本：**v1.6.2**。可从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载扩展压缩包，详细改动见 [v1.6.2 版本说明](docs/releases/v1.6.2.md)。
+当前稳定版本：**v1.7.0**，可从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载。完整改动见 [v1.7.0 版本说明](docs/releases/v1.7.0.md)。
 
 ## 功能
 
-- **离线 Mermaid 图表** — 完整运行库随扩展提供，支持当前锁定版本内置的全部图表类型
+- **离线 Mermaid 图表** — 完整运行库随扩展提供，支持缩放及单图下载 SVG / PNG
+- **明暗主题** — GitHub 风格浅色与深色模式即时切换，多标签页同步偏好
+- **最近文件** — 记住最多 12 个工具内打开或双击关联的文件；有句柄时尽量恢复直接保存，关联文件按只读来源重新读取
+- **任务列表与脚注** — 预览及 HTML 导出均支持，Markdown 源码保持不变
 - **默认阅读模式** — 打开文件后只显示目录和预览，点击“编辑文档”后再显示编辑区
 - **源文件保存** — 工具内打开的文件可直接写回；双击接管的文件首次保存时引导选择源文件
 - **保存与另存为** — 保存写回当前目标，另存为创建新的 Markdown 文件
@@ -14,6 +17,7 @@
 - **可折叠目录** — 按标题层级展开或收起，单击跳转，滚动时自动高亮，长标题自适应省略
 - **GitHub 风格界面** — 白底黑字、系统字体、默认预览优先
 - **三档字号** — 小 / 中 / 大，侧边栏、编辑区和预览区同步缩放
+- **紧凑侧栏** — 文档与编辑操作分组，低频命令按需展开；目录下方提供排除图片编码和图表源码的阅读摘要
 - **图片处理** — 支持粘贴、拖拽图片；编辑时以短引用呈现，保存时自动还原为可移植的 DataURL
 - **HTML 导出** — 完整自包含 HTML 文件，保留样式和代码高亮
 - **拖拽 .md 文件** — 将 .md 文件拖入编辑器直接加载
@@ -27,9 +31,9 @@
 
 ### 方式一：加载发行包
 
-v1.6.2 起统一提供单一完整扩展包 `md-editor-1.6.2.zip`，其中已包含 Mermaid 离线运行库。
+v1.6.2 起统一提供单一完整扩展包。v1.7.0 发行包为 `md-editor-1.7.0.zip`，其中已包含 Mermaid 离线运行库。
 
-1. 从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载 `md-editor-1.6.2.zip` 并解压到一个新的空文件夹
+1. 从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载 `md-editor-1.7.0.zip`，并解压到一个新的空文件夹
 2. 打开 Chrome，地址栏输入 `chrome://extensions`
 3. 开启右上角「**开发者模式**」
 4. 点击「**加载已解压的扩展程序**」
@@ -67,6 +71,7 @@ npm run package
 - 文件打开后默认进入阅读模式，点击预览区右上角的「编辑文档」进入编辑模式。
 - 从工具内点击「打开」并选择文件后，首次写入可能需要确认权限，后续「保存」直接写回该文件。
 - 双击 `.md` 由扩展接管时，Chrome 不会把源文件写入权限交给扩展。修改后首次点击「保存」，请选择原文件完成授权，或使用「另存为」创建新文件。
+- 工具内打开和双击关联的文件都会进入「最近」列表。双击文件再次打开时读取磁盘上的最新内容，但仍需在保存时选择源文件取得写入权限。
 - 「导出 HTML」只生成 HTML，不会改变 Markdown 的保存目标，也不会清除 Markdown 的未保存状态。
 
 ## Mermaid 图表
@@ -87,6 +92,7 @@ mindmap
 - 运行库缺失、版本不兼容或依赖损坏时显示源码，并在第一个 Mermaid 块提供重新安装说明。
 - 图表完全离线渲染，不会请求 CDN 或远程脚本。
 - 图表语法错误时会在对应位置显示源码，不影响其他内容。
+- 将鼠标移入图表可缩放或下载 SVG / PNG；缩放只影响当前预览，不影响 HTML 导出。
 - 单篇文档最多渲染 50 个图表，单图最多 50000 个字符。
 - 为保持完全离线，图表中的远程图片和远程样式不会加载。
 - HTML 导出会直接内联 SVG，导出文件不需要 Mermaid 运行库。
@@ -102,7 +108,7 @@ mindmap
 
 ## 技术栈
 
-- **Markdown 渲染**：[markdown-it](https://github.com/markdown-it/markdown-it) + markdown-it-anchor
+- **Markdown 渲染**：[markdown-it](https://github.com/markdown-it/markdown-it) + anchor / task-lists / footnote 插件
 - **图表渲染**：[Mermaid](https://mermaid.js.org/) 11.16.0（完整内置图表、按需 ESM 分块）
 - **XSS 防护**：[DOMPurify](https://github.com/cure53/DOMPurify)
 - **代码高亮**：[highlight.js](https://highlightjs.org/)（精简子集，9 种语言）
@@ -118,8 +124,11 @@ mindmap
 ├── index.html         # 主页面
 ├── app.js             # 全部业务逻辑
 ├── image-assets.js    # 图片 DataURL 短引用、恢复与去重
+├── document-stats.js  # 正文字数、阅读时间与标题统计
+├── recent-files.js    # 最近文件句柄/关联地址、排序与去重
 ├── pending-file-storage.js # 关联文件临时数据与过期清理
 ├── mermaid-renderer.mjs # Mermaid 异步渲染、缓存与安全控制
+├── mermaid-tools.js   # Mermaid 缩放与 SVG/PNG 下载
 ├── mermaid-capability.mjs # Mermaid 组件能力与版本探测
 ├── mermaid-capability.json # 当前构建是否包含 Mermaid
 ├── style.css          # 样式系统

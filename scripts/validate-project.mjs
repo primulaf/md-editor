@@ -35,6 +35,12 @@ if (
 if (packageJson.dependencies?.mermaid !== '11.16.0') {
   throw new Error(`Mermaid 必须锁定为 11.16.0，当前为 ${packageJson.dependencies?.mermaid || '未安装'}`);
 }
+if (packageJson.dependencies?.['markdown-it-task-lists'] !== '2.1.1') {
+  throw new Error('markdown-it-task-lists 必须锁定为 2.1.1');
+}
+if (packageJson.dependencies?.['markdown-it-footnote'] !== '4.0.0') {
+  throw new Error('markdown-it-footnote 必须锁定为 4.0.0');
+}
 
 const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
 const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index);
@@ -50,6 +56,13 @@ const requiredIds = [
   'saveBtn',
   'saveAsBtn',
   'exportHtmlBtn',
+  'themeBtn',
+  'recentBtn',
+  'recentMenu',
+  'recentList',
+  'moreBtn',
+  'moreMenu',
+  'fontSizeControl',
   'editModeBtn',
   'sourceAccessDialog',
   'mermaidInstallDialog'
@@ -60,22 +73,40 @@ if (missingIds.length) {
 }
 
 const imageAssetsScriptIndex = html.indexOf('src="./image-assets.js"');
+const documentStatsScriptIndex = html.indexOf('src="./document-stats.js"');
+const themeInitScriptIndex = html.indexOf('src="./theme-init.js"');
+const styleSheetIndex = html.indexOf('href="./style.css"');
 const pendingFilesScriptIndex = html.indexOf('src="./pending-file-storage.js"');
+const recentFilesScriptIndex = html.indexOf('src="./recent-files.js"');
+const mermaidToolsScriptIndex = html.indexOf('src="./mermaid-tools.js"');
 const appScriptIndex = html.indexOf('src="./app.js"');
 if (
   pendingFilesScriptIndex < 0
+  || themeInitScriptIndex < 0
+  || styleSheetIndex < 0
+  || themeInitScriptIndex > styleSheetIndex
   || pendingFilesScriptIndex > appScriptIndex
   || pendingFilesScriptIndex > imageAssetsScriptIndex
   || imageAssetsScriptIndex < 0
+  || documentStatsScriptIndex < 0
+  || recentFilesScriptIndex < 0
+  || mermaidToolsScriptIndex < 0
   || appScriptIndex < 0
   || imageAssetsScriptIndex > appScriptIndex
+  || documentStatsScriptIndex > appScriptIndex
+  || recentFilesScriptIndex > appScriptIndex
+  || mermaidToolsScriptIndex > appScriptIndex
 ) {
-  throw new Error('pending-file-storage.js 和 image-assets.js 必须在 app.js 之前加载');
+  throw new Error('主题和核心辅助脚本的加载顺序不正确');
 }
 
 const requiredFiles = [
   'app.js',
+  'theme-init.js',
+  'recent-files.js',
+  'mermaid-tools.js',
   'image-assets.js',
+  'document-stats.js',
   'pending-file-storage.js',
   'mermaid-renderer.mjs',
   'mermaid-capability.mjs',
@@ -84,6 +115,8 @@ const requiredFiles = [
   'content.js',
   'style.css',
   'lib/markdown-it.min.js',
+  'lib/markdownItTaskLists.min.js',
+  'lib/markdownItFootnote.min.js',
   'lib/purify.min.js',
   'lib/highlight.min.js',
   'lib/mermaid/mermaid.esm.min.mjs',

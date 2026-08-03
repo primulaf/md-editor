@@ -15,8 +15,12 @@ const archivePath = join(dist, archiveName);
 const requiredFiles = [
   'manifest.json',
   'index.html',
+  'theme-init.js',
   'app.js',
+  'recent-files.js',
+  'mermaid-tools.js',
   'image-assets.js',
+  'document-stats.js',
   'pending-file-storage.js',
   'mermaid-renderer.mjs',
   'mermaid-capability.mjs',
@@ -33,6 +37,8 @@ const requiredFiles = [
   'lib/highlight.min.js',
   'lib/markdown-it.min.js',
   'lib/markdownItAnchor.umd.js',
+  'lib/markdownItTaskLists.min.js',
+  'lib/markdownItFootnote.min.js',
   'lib/purify.min.js',
   'lib/mermaid/version.json',
   'lib/mermaid/mermaid.esm.min.mjs'
