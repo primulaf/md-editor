@@ -16,6 +16,22 @@ if (manifest.version !== packageJson.version) {
   throw new Error(`版本号不一致：manifest=${manifest.version}, package=${packageJson.version}`);
 }
 
+for (const permission of ['storage', 'alarms']) {
+  if (!manifest.permissions?.includes(permission)) {
+    throw new Error(`manifest.json 缺少权限：${permission}`);
+  }
+}
+const markdownContentScript = manifest.content_scripts?.find((entry) => (
+  entry.matches?.includes('file:///*.md')
+));
+if (
+  !markdownContentScript
+  || markdownContentScript.js?.[0] !== 'pending-file-storage.js'
+  || !markdownContentScript.js.includes('content.js')
+) {
+  throw new Error('Markdown content script 必须先加载 pending-file-storage.js');
+}
+
 if (packageJson.dependencies?.mermaid !== '11.16.0') {
   throw new Error(`Mermaid 必须锁定为 11.16.0，当前为 ${packageJson.dependencies?.mermaid || '未安装'}`);
 }
@@ -43,8 +59,24 @@ if (missingIds.length) {
   throw new Error(`index.html 缺少必要控件：${missingIds.join(', ')}`);
 }
 
+const imageAssetsScriptIndex = html.indexOf('src="./image-assets.js"');
+const pendingFilesScriptIndex = html.indexOf('src="./pending-file-storage.js"');
+const appScriptIndex = html.indexOf('src="./app.js"');
+if (
+  pendingFilesScriptIndex < 0
+  || pendingFilesScriptIndex > appScriptIndex
+  || pendingFilesScriptIndex > imageAssetsScriptIndex
+  || imageAssetsScriptIndex < 0
+  || appScriptIndex < 0
+  || imageAssetsScriptIndex > appScriptIndex
+) {
+  throw new Error('pending-file-storage.js 和 image-assets.js 必须在 app.js 之前加载');
+}
+
 const requiredFiles = [
   'app.js',
+  'image-assets.js',
+  'pending-file-storage.js',
   'mermaid-renderer.mjs',
   'mermaid-capability.mjs',
   'mermaid-capability.json',

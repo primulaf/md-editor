@@ -40,7 +40,10 @@ const STORAGE_SOURCE_KIND_KEY = "md-editor-source-kind";
 const STORAGE_FONT_SIZE_KEY = "md-editor-font-size";
 const STORAGE_FONT_SIZE_VERSION_KEY = "md-editor-font-size-version";
 const LAYOUT_STORAGE_KEY = "md-editor-layout";
+const IMAGE_ASSETS_STORAGE_KEY = "md-editor-image-assets";
 const MERMAID_RENDER_DELAY = 450;
+const RESIZE_HANDLE_WIDTH = 6;
+const imageAssetStore = window.mdImageAssets.createStore();
 
 const SOURCE_KIND = Object.freeze({
   NEW: 'new',
@@ -83,6 +86,7 @@ let isResizing = false;
 let syncingFrom = null;
 let lastHighlightError = false;
 let isTocScrolling = false;
+let tocScrollReleaseTimer = null;
 let lastRenderedSource = null;
 let pendingRender = false;
 let lastHeadingHash = '';
@@ -96,6 +100,7 @@ let tocLinkById = new Map();
 let activeTocId = '';
 let resizePending = false;
 let lastSavedContent = null;
+let lastSavedDiskContent = null;
 let isDirty = false;
 let isEditing = false;
 let sourceKind = SOURCE_KIND.NEW;
@@ -107,6 +112,12 @@ let fileSystemAccessDisabled = false;
 let mermaidRenderRevision = 0;
 let mermaidRendererModulePromise = null;
 let activeMermaidRenderPromise = Promise.resolve();
+let imageStorageWarningShown = false;
+let restoredMissingImageAssets = [];
+let imageAssetsPersistedRevision = -1;
+let imageAssetsSnapshotRevision = -1;
+let imageAssetsSnapshotJson = "";
+let imageAssetsBlockedRevision = -1;
 
 // 文件名对话框状态
 let pendingFilenameCallback = null;
@@ -336,6 +347,64 @@ function markDocumentChanged() {
   updateDirtyIndicator();
 }
 
+class MissingImageAssetError extends Error {
+  constructor(missingIds) {
+    super(`Missing embedded image data: ${missingIds.join(", ")}`);
+    this.name = "MissingImageAssetError";
+    this.missingIds = missingIds;
+  }
+}
+
+function compactMarkdownImages(content) {
+  return imageAssetStore.compact(String(content || ""));
+}
+
+function compactEditorImages() {
+  const selectionStart = editor.selectionStart;
+  const selectionEnd = editor.selectionEnd;
+  const compacted = compactMarkdownImages(editor.value);
+  if (!compacted.count) return false;
+
+  editor.value = compacted.content;
+  editor.selectionStart = window.mdImageAssets.mapPosition(
+    selectionStart,
+    compacted.replacements
+  );
+  editor.selectionEnd = window.mdImageAssets.mapPosition(
+    selectionEnd,
+    compacted.replacements
+  );
+  return true;
+}
+
+function expandMarkdownImages(content, strict = false) {
+  const expanded = imageAssetStore.expand(String(content || ""));
+  if (strict && expanded.missingIds.length) {
+    throw new MissingImageAssetError(expanded.missingIds);
+  }
+  return expanded;
+}
+
+function getExpandedEditorContent(strict = false) {
+  return expandMarkdownImages(editor.value, strict).content;
+}
+
+function resetImageAssetsWithContent(content) {
+  imageAssetStore.clear();
+  restoredMissingImageAssets = [];
+  return compactMarkdownImages(content).content;
+}
+
+function canUseImageAssets(action) {
+  try {
+    getExpandedEditorContent(true);
+    return true;
+  } catch (error) {
+    reportFileError(error, action);
+    return false;
+  }
+}
+
 /**
  * 提取标题纯文本（排除标题锚点和隐藏辅助文本）
  */
@@ -525,7 +594,8 @@ function renderMarkdown(force) {
       lastRenderedSource = currentSource;
 
       lastHighlightError = false;
-      const rawHtml = md.render(currentSource);
+      const expandedSource = expandMarkdownImages(currentSource);
+      const rawHtml = md.render(expandedSource.content);
 
       const safeHtml = DOMPurify.sanitize(rawHtml, {
         USE_PROFILES: { html: true },
@@ -819,13 +889,45 @@ function updateStats() {
  * 本地持久化
  */
 function persist() {
-  sessionStorage.setItem(STORAGE_KEY, editor.value);
-  sessionStorage.setItem(STORAGE_FILE_NAME_KEY, currentFileName);
-  sessionStorage.setItem(STORAGE_BASELINE_KEY, lastSavedContent ?? '');
-  sessionStorage.setItem(
-    STORAGE_SOURCE_KIND_KEY,
-    sourceKind === SOURCE_KIND.NEW ? SOURCE_KIND.NEW : SOURCE_KIND.UNLINKED
-  );
+  const imageAssetsRevision = imageAssetStore.revision;
+  if (imageAssetsBlockedRevision === imageAssetsRevision) return;
+
+  if (imageAssetsPersistedRevision !== imageAssetsRevision) {
+    try {
+      if (imageAssetsSnapshotRevision !== imageAssetsRevision) {
+        imageAssetsSnapshotJson = JSON.stringify(imageAssetStore.snapshot());
+        imageAssetsSnapshotRevision = imageAssetsRevision;
+      }
+      sessionStorage.setItem(IMAGE_ASSETS_STORAGE_KEY, imageAssetsSnapshotJson);
+      imageAssetsPersistedRevision = imageAssetsRevision;
+      imageAssetsBlockedRevision = -1;
+    } catch (error) {
+      imageAssetsBlockedRevision = imageAssetsRevision;
+      if (!imageStorageWarningShown) {
+        imageStorageWarningShown = true;
+        console.warn("Unable to cache embedded images for this tab:", error);
+        setStatus("图片较大，无法缓存当前标签页；请先保存文档，刷新前不要关闭页面", "danger");
+      }
+      return;
+    }
+  }
+
+  try {
+    sessionStorage.setItem(STORAGE_KEY, editor.value);
+    sessionStorage.setItem(STORAGE_FILE_NAME_KEY, currentFileName);
+    sessionStorage.setItem(STORAGE_BASELINE_KEY, lastSavedContent ?? '');
+    sessionStorage.setItem(
+      STORAGE_SOURCE_KIND_KEY,
+      sourceKind === SOURCE_KIND.NEW ? SOURCE_KIND.NEW : SOURCE_KIND.UNLINKED
+    );
+    imageStorageWarningShown = false;
+  } catch (error) {
+    if (!imageStorageWarningShown) {
+      imageStorageWarningShown = true;
+      console.warn("Unable to cache this document for the current tab:", error);
+      setStatus("文档较大，无法缓存当前标签页；请先保存文档，刷新前不要关闭页面", "danger");
+    }
+  }
 }
 
 /**
@@ -836,6 +938,22 @@ function restore() {
   let cachedFileName = sessionStorage.getItem(STORAGE_FILE_NAME_KEY);
   let cachedBaseline = sessionStorage.getItem(STORAGE_BASELINE_KEY);
   const cachedSourceKind = sessionStorage.getItem(STORAGE_SOURCE_KIND_KEY);
+  const cachedImageAssets = sessionStorage.getItem(IMAGE_ASSETS_STORAGE_KEY);
+
+  if (cachedImageAssets) {
+    try {
+      imageAssetStore.restore(JSON.parse(cachedImageAssets));
+      imageAssetsPersistedRevision = imageAssetStore.revision;
+    } catch (error) {
+      console.warn("Unable to restore embedded image cache:", error);
+      imageAssetStore.clear();
+      sessionStorage.removeItem(IMAGE_ASSETS_STORAGE_KEY);
+      imageAssetsPersistedRevision = -1;
+    }
+  } else {
+    imageAssetStore.clear();
+    imageAssetsPersistedRevision = -1;
+  }
 
   // v1.4.0 及更早版本将文档存在 localStorage；只迁移一次，随后按标签页隔离。
   if (cachedContent === null) {
@@ -852,12 +970,20 @@ function restore() {
     fileNameEl.textContent = currentFileName;
   }
 
-  if (cachedContent !== null) {
-    editor.value = cachedContent;
-  } else {
-    editor.value = defaultMarkdown();
-  }
-  lastSavedContent = cachedBaseline !== null ? cachedBaseline : editor.value;
+  const restoredContent = cachedContent !== null ? cachedContent : defaultMarkdown();
+  editor.value = compactMarkdownImages(restoredContent).content;
+  lastSavedContent = compactMarkdownImages(
+    cachedBaseline !== null ? cachedBaseline : restoredContent
+  ).content;
+  const restoredBaseline = expandMarkdownImages(lastSavedContent);
+  const restoredEditorContent = expandMarkdownImages(editor.value);
+  restoredMissingImageAssets = [...new Set([
+    ...restoredEditorContent.missingIds,
+    ...restoredBaseline.missingIds
+  ])];
+  lastSavedDiskContent = restoredBaseline.missingIds.length
+    ? null
+    : restoredBaseline.content;
   sourceKind = cachedSourceKind === SOURCE_KIND.NEW || !hasCachedDocument
     ? SOURCE_KIND.NEW
     : SOURCE_KIND.UNLINKED;
@@ -898,7 +1024,7 @@ function updateLayout() {
   app.classList.toggle('is-editing', isEditing);
 
   const bothVisible = layout.editorVisible && layout.previewVisible;
-  const handleW = bothVisible ? '4px' : '0px';
+  const handleW = bothVisible ? `${RESIZE_HANDLE_WIDTH}px` : '0px';
 
   let editorW;
   if (!layout.editorVisible) {
@@ -926,6 +1052,9 @@ function updateLayout() {
   app.style.setProperty('--grid-editor', editorW);
   app.style.setProperty('--grid-handle', handleW);
   app.style.setProperty('--grid-preview', previewW);
+  resizeHandle.tabIndex = bothVisible ? 0 : -1;
+  resizeHandle.setAttribute('aria-hidden', String(!bothVisible));
+  resizeHandle.setAttribute('aria-valuenow', String(Math.round(layout.splitRatio * 100)));
 
   saveLayout();
 }
@@ -1026,8 +1155,10 @@ function initResizeHandle() {
     requestAnimationFrame(() => {
       resizePending = false;
       const appRect = app.getBoundingClientRect();
-      const sidebarW = layout.sidebarVisible ? 280 : 0;
-      const handleW = 4;
+      const sidebarW = layout.sidebarVisible
+        ? sidebarEl.getBoundingClientRect().width
+        : 0;
+      const handleW = resizeHandle.getBoundingClientRect().width;
       const available = appRect.width - sidebarW - handleW;
       if (available <= 0) return;
       let ratio = (e.clientX - appRect.left - sidebarW) / available;
@@ -1043,6 +1174,19 @@ function initResizeHandle() {
     resizeHandle.classList.remove('active');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+  });
+
+  resizeHandle.addEventListener('keydown', (e) => {
+    if (!layout.editorVisible || !layout.previewVisible) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+
+    const direction = e.key === 'ArrowLeft' ? -1 : 1;
+    layout.splitRatio = Math.max(
+      0.2,
+      Math.min(0.8, layout.splitRatio + direction * 0.05)
+    );
+    updateLayout();
+    e.preventDefault();
   });
 }
 
@@ -1122,7 +1266,12 @@ function reportFileError(error, action) {
   }
 
   console.error(`${action}失败：`, error);
-  if (error?.name === 'NotAllowedError') {
+  if (error?.name === 'MissingImageAssetError') {
+    setStatus(
+      `${action}未完成：部分内嵌图片数据已丢失，请重新打开原文件或重新插入图片`,
+      'danger'
+    );
+  } else if (error?.name === 'NotAllowedError') {
     setStatus(`未获得文件写入权限，${action}未完成`, 'danger');
   } else if (error?.name === 'NotFoundError') {
     setStatus(`文件不存在或已被移动，${action}未完成`, 'danger');
@@ -1152,14 +1301,15 @@ async function readMarkdownFile(file) {
 }
 
 function serializeCurrentDocument() {
+  const expandedContent = getExpandedEditorContent(true);
   const content = sourceLineEnding === '\n'
-    ? editor.value
-    : editor.value.replace(/\n/g, sourceLineEnding);
+    ? expandedContent
+    : expandedContent.replace(/\n/g, sourceLineEnding);
   return sourceHasBom ? `\uFEFF${content}` : content;
 }
 
 function applyLoadedDocument(file, fileData, handle, nextSourceKind) {
-  editor.value = fileData.content;
+  editor.value = resetImageAssetsWithContent(fileData.content);
   currentFileName = file.name || '未命名文档.md';
   currentFileHandle = handle || null;
   sourceKind = nextSourceKind;
@@ -1167,6 +1317,7 @@ function applyLoadedDocument(file, fileData, handle, nextSourceKind) {
   sourceLineEnding = fileData.lineEnding;
   sourceHasBom = fileData.hasBom;
   lastSavedContent = editor.value;
+  lastSavedDiskContent = fileData.content;
   isDirty = false;
   resetTocState();
   showPreviewOnly();
@@ -1232,7 +1383,7 @@ async function hasExternalFileChange(handle) {
   if (diskFile.lastModified === sourceLastModified) return false;
 
   const diskData = await readMarkdownFile(diskFile);
-  return diskData.content !== lastSavedContent;
+  return lastSavedDiskContent !== null && diskData.content !== lastSavedDiskContent;
 }
 
 async function writeCurrentDocumentToHandle(handle, options = {}) {
@@ -1240,6 +1391,8 @@ async function writeCurrentDocumentToHandle(handle, options = {}) {
   let writable = null;
 
   try {
+    const expandedContent = getExpandedEditorContent(true);
+    const serializedContent = serializeCurrentDocument();
     if (!(await ensureWritePermission(handle))) {
       setStatus('未获得文件写入权限，文件未保存', 'danger');
       return false;
@@ -1254,7 +1407,7 @@ async function writeCurrentDocumentToHandle(handle, options = {}) {
     }
 
     writable = await handle.createWritable();
-    await writable.write(serializeCurrentDocument());
+    await writable.write(serializedContent);
     await writable.close();
     writable = null;
 
@@ -1264,6 +1417,7 @@ async function writeCurrentDocumentToHandle(handle, options = {}) {
     sourceKind = SOURCE_KIND.LINKED;
     sourceLastModified = Number.isFinite(savedFile.lastModified) ? savedFile.lastModified : null;
     lastSavedContent = editor.value;
+    lastSavedDiskContent = expandedContent;
     isDirty = false;
     persist();
     updateDirtyIndicator();
@@ -1283,28 +1437,34 @@ async function writeCurrentDocumentToHandle(handle, options = {}) {
 }
 
 function downloadMarkdownCopy(filename) {
-  const validatedFilename = validateFilename(filename, '.md');
-  const blob = new Blob([serializeCurrentDocument()], {
-    type: 'text/markdown;charset=utf-8'
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = validatedFilename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  try {
+    const expandedContent = getExpandedEditorContent(true);
+    const validatedFilename = validateFilename(filename, '.md');
+    const blob = new Blob([serializeCurrentDocument()], {
+      type: 'text/markdown;charset=utf-8'
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = validatedFilename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
 
-  currentFileName = validatedFilename;
-  currentFileHandle = null;
-  sourceKind = SOURCE_KIND.UNLINKED;
-  sourceLastModified = null;
-  lastSavedContent = editor.value;
-  isDirty = false;
-  persist();
-  updateDirtyIndicator();
-  setStatus(`副本已下载：${currentFileName} · 源文件未更改`, 'notice');
+    currentFileName = validatedFilename;
+    currentFileHandle = null;
+    sourceKind = SOURCE_KIND.UNLINKED;
+    sourceLastModified = null;
+    lastSavedContent = editor.value;
+    lastSavedDiskContent = expandedContent;
+    isDirty = false;
+    persist();
+    updateDirtyIndicator();
+    setStatus(`副本已下载：${currentFileName} · 源文件未更改`, 'notice');
+  } catch (error) {
+    reportFileError(error, '下载副本');
+  }
 }
 
 async function saveMarkdownAs() {
@@ -1359,7 +1519,11 @@ async function connectSourceAndSave() {
 
     const diskFile = await handle.getFile();
     const diskData = await readMarkdownFile(diskFile);
-    if (diskData.content !== lastSavedContent && diskData.content !== editor.value) {
+    const expandedContent = getExpandedEditorContent(true);
+    if (
+      diskData.content !== lastSavedDiskContent
+      && diskData.content !== expandedContent
+    ) {
       const overwriteDifferentContent = window.confirm(
         '所选文件的内容与打开时不同。继续保存将覆盖所选文件，是否继续？'
       );
@@ -1607,6 +1771,7 @@ function downloadHtmlFile(content, filename) {
  * @param {string} filename - 要导出的 HTML 文件名
  */
 async function _exportHtmlFile(filename) {
+  if (!canUseImageAssets('导出 HTML')) return;
   const validatedFilename = validateFilename(filename, '.html');
   const title = validatedFilename.replace(/\.html$/i, "");
   await ensureMermaidRendered();
@@ -1627,6 +1792,7 @@ async function _exportHtmlFile(filename) {
  * 导出 HTML（带文件名提示）
  */
 async function exportHtmlFile() {
+  if (!canUseImageAssets('导出 HTML')) return;
   const defaultHtmlName = `${(currentFileName || "Markdown导出").replace(/\.md$/i, "")}.html`;
 
   if (supportsFilePicker('showSaveFilePicker')) {
@@ -1690,13 +1856,14 @@ function newDocument() {
   if (!confirmDocumentReplacement('新建文档')) return;
 
   currentFileName = "未命名文档.md";
-  editor.value = defaultMarkdown();
+  editor.value = resetImageAssetsWithContent(defaultMarkdown());
   currentFileHandle = null;
   sourceKind = SOURCE_KIND.NEW;
   sourceLastModified = null;
   sourceLineEnding = '\n';
   sourceHasBom = false;
   lastSavedContent = editor.value;
+  lastSavedDiskContent = getExpandedEditorContent();
   isDirty = false;
   resetTocState();
   setEditingMode(true, { focusEditor: true });
@@ -1729,12 +1896,12 @@ function defaultMarkdown() {
 | 目录导航 | 分级折叠、点击跳转、滚动高亮 |
 | 字号 | 小、中、大三档同步缩放 |
 | 多文档 | 标签页显示文件名，文档状态相互隔离 |
-| Mermaid | 完整包离线渲染，精简包保留源码 |
-| 图片 | 粘贴或拖入图片，自动内嵌到文档 |
+| Mermaid | 内置完整运行库并离线渲染，组件异常时保留源码 |
+| 图片 | 粘贴或拖入图片，编辑时显示短引用，保存时自动内嵌 |
 
 ## Mermaid 图表
 
-将代码围栏的语言标记为 \`mermaid\`，完整包会自动离线渲染图表；精简包会保留源码，并提供离线组件安装说明。
+将代码围栏的语言标记为 \`mermaid\`，扩展会自动离线渲染图表；运行库缺失、损坏或版本不兼容时会保留源码，并提供重新安装说明。
 
 ### 阅读与编辑流程
 
@@ -1813,12 +1980,20 @@ function handleImageFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
     const dataUrl = String(reader.result || "");
-    const alt = (file.name || "image").replace(/\.[^.]+$/, "");
-    const markdown = `\n![${alt}](${dataUrl})\n`;
-    insertAtCursor(editor, markdown);
-    markDocumentChanged();
-    renderMarkdown(true);
-    setStatus(`已插入图片：${file.name || "image"}`);
+    try {
+      const imageId = imageAssetStore.add(dataUrl);
+      const alt = window.mdImageAssets.escapeAltText(
+        (file.name || "image").replace(/\.[^.]+$/, "")
+      );
+      const markdown = `\n![${alt}](md-image:${imageId})\n`;
+      insertAtCursor(editor, markdown);
+      markDocumentChanged();
+      renderMarkdown(true);
+      setStatus(`已插入图片：${file.name || "image"} · 保存时自动内嵌`);
+    } catch (error) {
+      console.error("Unable to insert image:", error);
+      setStatus("图片格式无法识别，插入失败", "danger");
+    }
   };
   reader.onerror = () => {
     const error = reader.error;
@@ -1855,6 +2030,36 @@ editor.addEventListener("paste", (e) => {
 /**
  * 拖拽文件：图片 → 插入 Markdown 语法；.md → 加载内容
  */
+function transferExpandedImageMarkdown(event, cutSelection = false) {
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  if (start === end) return;
+
+  const selectedText = editor.value.slice(start, end);
+  const expanded = expandMarkdownImages(selectedText);
+  if (
+    !event.clipboardData
+    || expanded.missingIds.length
+    || expanded.content === selectedText
+  ) return;
+
+  event.preventDefault();
+  event.clipboardData.setData("text/plain", expanded.content);
+  if (!cutSelection) return;
+
+  editor.setRangeText("", start, end, "end");
+  markDocumentChanged();
+  renderAfterInput();
+}
+
+editor.addEventListener("copy", (event) => {
+  transferExpandedImageMarkdown(event);
+});
+
+editor.addEventListener("cut", (event) => {
+  transferExpandedImageMarkdown(event, true);
+});
+
 editor.addEventListener("dragover", (e) => {
   e.preventDefault();
 });
@@ -1975,17 +2180,18 @@ toc.addEventListener("click", (e) => {
   const maxScrollTop = preview.scrollHeight - preview.clientHeight;
   targetScrollTop = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
 
-  preview.scrollTo({
-    top: targetScrollTop,
-    behavior: "smooth"
-  });
+  preview.scrollTo({ top: targetScrollTop, behavior: "auto" });
 
   const previewMax = preview.scrollHeight - preview.clientHeight;
   const editorMax = editor.scrollHeight - editor.clientHeight;
   const editorTarget = previewMax > 0 ? (targetScrollTop / previewMax) * editorMax : 0;
-  editor.scrollTo({ top: editorTarget, behavior: 'smooth' });
+  editor.scrollTo({ top: editorTarget, behavior: 'auto' });
 
-  setTimeout(() => { isTocScrolling = false; }, 800);
+  if (tocScrollReleaseTimer) clearTimeout(tocScrollReleaseTimer);
+  tocScrollReleaseTimer = setTimeout(() => {
+    isTocScrolling = false;
+    tocScrollReleaseTimer = null;
+  }, 120);
 
   history.replaceState(null, "", `#${encodeURIComponent(rawTargetId)}`);
   highlightActiveToc(rawTargetId);
@@ -2105,6 +2311,7 @@ preview.addEventListener('click', (e) => {
 
 const renderAfterInput = debounce(renderMarkdown, 200);
 editor.addEventListener("input", () => {
+  compactEditorImages();
   markDocumentChanged();
   renderAfterInput();
 });
@@ -2146,6 +2353,10 @@ window.addEventListener('beforeunload', (e) => {
     clearTimeout(tocHighlightTimer);
     tocHighlightTimer = null;
   }
+  if (tocScrollReleaseTimer) {
+    clearTimeout(tocScrollReleaseTimer);
+    tocScrollReleaseTimer = null;
+  }
   persist();
   if (isDirty) {
     e.preventDefault();
@@ -2162,19 +2373,28 @@ restoreLayoutState();
 showPreviewOnly();
 renderMarkdown(true);
 updateStats();
+if (restoredMissingImageAssets.length) {
+  requestAnimationFrame(() => {
+    setStatus(
+      "部分内嵌图片缓存已丢失，请重新打开原文件后再保存或导出",
+      "danger"
+    );
+  });
+}
 
 // 文件关联启动：通过 URL 参数 ?file=<nonce> 识别来自 content script 的加载
 // 避免 chrome.storage.local 残留污染正常打开的标签页
 function loadFileContent(content, filename) {
   const normalizedContent = String(content || '').replace(/\r\n?/g, '\n');
-  editor.value = normalizedContent;
+  editor.value = resetImageAssetsWithContent(normalizedContent);
   currentFileName = filename || '未命名文档.md';
   currentFileHandle = null;
   sourceKind = SOURCE_KIND.UNLINKED;
   sourceLastModified = null;
   sourceLineEnding = String(content || '').includes('\r\n') ? '\r\n' : '\n';
   sourceHasBom = false;
-  lastSavedContent = normalizedContent;
+  lastSavedContent = editor.value;
+  lastSavedDiskContent = normalizedContent;
   isDirty = false;
   resetTocState();
   showPreviewOnly();
@@ -2184,20 +2404,50 @@ function loadFileContent(content, filename) {
   updateDirtyIndicator();
 }
 
-(function checkFileLaunch() {
+(function initializePendingFileStorage() {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+
+  const pendingFiles = window.mdPendingFiles;
   const params = new URLSearchParams(window.location.search);
-  const nonce = params.get('file');
-  if (!nonce) return;
+  const nonce = pendingFiles.normalizeNonce(params.get('file'));
 
-  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+  chrome.storage.local.get(null, (data) => {
+    if (chrome.runtime.lastError) {
+      console.error('无法读取待打开文件缓存：', chrome.runtime.lastError.message);
+      return;
+    }
 
-  const contentKey = 'file:' + nonce;
-  const nameKey = 'name:' + nonce;
-  chrome.storage.local.get([contentKey, nameKey], (data) => {
-    const content = data[contentKey];
-    if (typeof content === 'string') {
-      loadFileContent(content, data[nameKey] || 'untitled.md');
-      chrome.storage.local.remove([contentKey, nameKey]);
+    const cleanupKeys = pendingFiles.collectCleanupKeys(data, {
+      currentNonce: nonce
+    });
+    const consumedKeys = [];
+
+    if (nonce) {
+      const storageKey = pendingFiles.pendingKey(nonce);
+      const envelope = data[storageKey];
+      const legacyContentKey = pendingFiles.legacyFileKey(nonce);
+      const legacyNameKey = pendingFiles.legacyNameKey(nonce);
+      const legacyContent = data[legacyContentKey];
+
+      if (pendingFiles.isFreshEnvelope(envelope)) {
+        loadFileContent(envelope.content, envelope.name || 'untitled.md');
+      } else if (typeof legacyContent === 'string') {
+        loadFileContent(legacyContent, data[legacyNameKey] || 'untitled.md');
+      } else {
+        setStatus('待打开的文件内容已过期，请重新打开源文件', 'danger');
+      }
+
+      consumedKeys.push(storageKey, legacyContentKey, legacyNameKey);
+      chrome.alarms?.clear(pendingFiles.cleanupAlarmName(nonce));
+    }
+
+    const keysToRemove = [...new Set([...cleanupKeys, ...consumedKeys])].filter(Boolean);
+    if (keysToRemove.length) {
+      chrome.storage.local.remove(keysToRemove, () => {
+        if (chrome.runtime.lastError) {
+          console.warn('无法清理待打开文件缓存：', chrome.runtime.lastError.message);
+        }
+      });
     }
   });
 })();

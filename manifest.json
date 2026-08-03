@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "md.",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "GitHub 风格离线 Markdown 阅读与编辑工具，支持 Mermaid 图表、源文件保存、可折叠目录和 HTML 导出",
   "action": {
     "default_title": "打开 md. 编辑器"
@@ -14,12 +14,12 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "alarms"],
   "host_permissions": ["file:///*"],
   "content_scripts": [
     {
       "matches": ["file:///*.md", "file:///*.markdown"],
-      "js": ["content.js"],
+      "js": ["pending-file-storage.js", "content.js"],
       "run_at": "document_idle"
     }
   ],

@@ -6,18 +6,19 @@ import { zipSync } from 'fflate';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dist = join(root, 'dist');
-const fullRoot = join(dist, 'full');
-const liteRoot = join(dist, 'lite');
-const dependencyRoot = join(dist, 'dependency');
+const stagingRoot = join(dist, '.staging');
 const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const appVersion = packageJson.version;
-const mermaidVersion = packageJson.dependencies.mermaid;
+const archiveName = `md-editor-${appVersion}.zip`;
+const archivePath = join(dist, archiveName);
 const fixedTimestamp = new Date(1980, 0, 1);
 
-const commonItems = [
+const packageItems = [
   'manifest.json',
   'index.html',
   'app.js',
+  'image-assets.js',
+  'pending-file-storage.js',
   'mermaid-renderer.mjs',
   'mermaid-capability.mjs',
   'mermaid-capability.json',
@@ -31,12 +32,13 @@ const commonItems = [
   'lib/highlight.min.js',
   'lib/markdown-it.min.js',
   'lib/markdownItAnchor.umd.js',
-  'lib/purify.min.js'
+  'lib/purify.min.js',
+  'lib/mermaid'
 ];
 
-async function copyItem(item, targetRoot) {
+async function copyItem(item) {
   const source = join(root, item);
-  const target = join(targetRoot, item);
+  const target = join(stagingRoot, item);
   await mkdir(dirname(target), { recursive: true });
   await cp(source, target, { recursive: true });
 }
@@ -68,55 +70,18 @@ async function sha256(path) {
 }
 
 await rm(dist, { recursive: true, force: true });
-await Promise.all([
-  mkdir(fullRoot, { recursive: true }),
-  mkdir(liteRoot, { recursive: true }),
-  mkdir(dependencyRoot, { recursive: true })
-]);
+await mkdir(stagingRoot, { recursive: true });
+await Promise.all(packageItems.map(copyItem));
+await writeZip(stagingRoot, archivePath);
+await rm(stagingRoot, { recursive: true, force: true });
 
-await Promise.all(commonItems.flatMap((item) => [
-  copyItem(item, fullRoot),
-  copyItem(item, liteRoot)
-]));
-await copyItem('lib/mermaid', fullRoot);
-
-const fullCapability = JSON.parse(await readFile(join(root, 'mermaid-capability.json'), 'utf8'));
-const liteCapability = {
-  ...fullCapability,
-  available: false
-};
+const digest = await sha256(archivePath);
 await writeFile(
-  join(liteRoot, 'mermaid-capability.json'),
-  `${JSON.stringify(liteCapability, null, 2)}\n`,
+  join(dist, 'SHA256SUMS.txt'),
+  `${digest}  ${archiveName}\n`,
   'utf8'
 );
 
-await copyItem('mermaid-capability.json', dependencyRoot);
-await copyItem('lib/mermaid', dependencyRoot);
-
-const archiveNames = {
-  full: `md-editor-full-${appVersion}.zip`,
-  lite: `md-editor-lite-${appVersion}.zip`,
-  dependency: `md-editor-mermaid-${mermaidVersion}.zip`
-};
-const archivePaths = Object.fromEntries(
-  Object.entries(archiveNames).map(([key, name]) => [key, join(dist, name)])
-);
-
-await Promise.all([
-  writeZip(fullRoot, archivePaths.full),
-  writeZip(liteRoot, archivePaths.lite),
-  writeZip(dependencyRoot, archivePaths.dependency)
-]);
-
-const checksumLines = [];
-for (const name of Object.values(archiveNames)) {
-  checksumLines.push(`${await sha256(join(dist, name))}  ${name}`);
-}
-await writeFile(join(dist, 'SHA256SUMS.txt'), `${checksumLines.join('\n')}\n`, 'utf8');
-
-for (const [kind, path] of Object.entries(archivePaths)) {
-  const bytes = (await stat(path)).size;
-  console.log(`${kind}: ${archiveNames[kind]} (${bytes} bytes)`);
-}
+const bytes = (await stat(archivePath)).size;
+console.log(`${archiveName} (${bytes} bytes)`);
 console.log('SHA-256 已写入 dist/SHA256SUMS.txt');

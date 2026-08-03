@@ -94,7 +94,16 @@
     </main>
 
     <!-- 分栏拖拽手柄 -->
-    <div id="resizeHandle" class="resize-handle"></div>
+    <div
+      id="resizeHandle"
+      class="resize-handle"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="调整编辑区和预览区宽度"
+      aria-valuemin="20"
+      aria-valuemax="80"
+      tabindex="-1"
+    ></div>
 
     <!-- 右侧预览区 -->
     <section class="preview-pane">
@@ -155,16 +164,16 @@
 
   <div id="mermaidInstallDialog" class="filename-dialog" role="dialog" aria-modal="true" aria-labelledby="mermaidInstallDialogTitle" hidden>
     <div class="filename-dialog-content mermaid-install-dialog-content">
-      <h3 id="mermaidInstallDialogTitle" class="filename-dialog-title">安装 Mermaid 图表组件</h3>
+      <h3 id="mermaidInstallDialogTitle" class="filename-dialog-title">Mermaid 图表不可用</h3>
       <div class="filename-dialog-body mermaid-install-body">
-        <p class="dialog-message">当前扩展未包含 Mermaid 运行库，因此图表以源码显示。补装组件不会改变扩展的其他功能。</p>
+        <p class="dialog-message">当前扩展的 Mermaid 运行库缺失、损坏或版本不兼容，因此图表以源码显示。请重新安装完整扩展包。</p>
         <ol>
-          <li>从 <a href="https://github.com/primulaf/md-editor/releases" target="_blank" rel="noopener noreferrer">项目 Releases</a> 或公司内网下载 <code>md-editor-mermaid-11.16.0.zip</code>。</li>
-          <li>把压缩包解压到此前加载到 Chrome 的扩展根目录，并允许合并目录。</li>
-          <li>确认文件路径为 <code>lib/mermaid/mermaid.esm.min.mjs</code>。</li>
-          <li>打开 <code>chrome://extensions</code>，找到 md. 并点击“重新加载”，然后刷新文档。</li>
+          <li>从 <a href="https://github.com/primulaf/md-editor/releases" target="_blank" rel="noopener noreferrer">项目 Releases</a> 或公司内网下载最新的 <code>md-editor-&lt;版本号&gt;.zip</code>。</li>
+          <li>将压缩包解压到新的空文件夹，避免旧文件残留。</li>
+          <li>打开 <code>chrome://extensions</code>，删除旧的加载目录或重新选择新文件夹。</li>
+          <li>重新加载扩展并刷新当前文档。</li>
         </ol>
-        <p class="mermaid-install-warning">依赖包含可执行代码，请只使用项目 Release 或公司内网提供的文件，并核对发布页中的 SHA-256。</p>
+        <p class="mermaid-install-warning">扩展包包含可执行代码，请只使用项目 Release 或公司内网提供的文件，并核对发布页中的 SHA-256。</p>
       </div>
       <div class="filename-dialog-actions">
         <button type="button" id="mermaidInstallCloseBtn" class="filename-btn primary">知道了</button>
@@ -173,6 +182,8 @@
   </div>
 
   <!-- 业务逻辑 -->
+  <script src="./pending-file-storage.js"></script>
+  <script src="./image-assets.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

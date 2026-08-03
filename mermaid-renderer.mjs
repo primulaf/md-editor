@@ -180,7 +180,7 @@ function showDependencyFallback(block, capability, showNotice) {
 
   const text = document.createElement('span');
   if (capability.reason === 'missing') {
-    text.textContent = 'Mermaid 组件未安装，当前显示源码。';
+    text.textContent = 'Mermaid 运行库缺失，当前显示源码。';
   } else if (capability.reason === 'incompatible') {
     text.textContent = 'Mermaid 组件版本不兼容，当前显示源码。';
   } else {
@@ -191,7 +191,7 @@ function showDependencyFallback(block, capability, showNotice) {
   const helpButton = document.createElement('button');
   helpButton.type = 'button';
   helpButton.className = 'mermaid-install-link';
-  helpButton.textContent = '安装说明';
+  helpButton.textContent = '重新安装说明';
   notice.append(text, helpButton);
   block.insertBefore(notice, source || null);
 }

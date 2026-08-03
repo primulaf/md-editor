@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { strFromU8, unzipSync } from 'fflate';
@@ -9,15 +9,15 @@ const dist = join(root, 'dist');
 const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const appVersion = packageJson.version;
 const mermaidVersion = packageJson.dependencies.mermaid;
-const archiveNames = {
-  full: `md-editor-full-${appVersion}.zip`,
-  lite: `md-editor-lite-${appVersion}.zip`,
-  dependency: `md-editor-mermaid-${mermaidVersion}.zip`
-};
-const commonFiles = [
+const archiveName = `md-editor-${appVersion}.zip`;
+const archivePath = join(dist, archiveName);
+
+const requiredFiles = [
   'manifest.json',
   'index.html',
   'app.js',
+  'image-assets.js',
+  'pending-file-storage.js',
   'mermaid-renderer.mjs',
   'mermaid-capability.mjs',
   'mermaid-capability.json',
@@ -33,7 +33,9 @@ const commonFiles = [
   'lib/highlight.min.js',
   'lib/markdown-it.min.js',
   'lib/markdownItAnchor.umd.js',
-  'lib/purify.min.js'
+  'lib/purify.min.js',
+  'lib/mermaid/version.json',
+  'lib/mermaid/mermaid.esm.min.mjs'
 ];
 const forbiddenPrefixes = [
   '.claude/',
@@ -44,19 +46,19 @@ const forbiddenPrefixes = [
   'tests/'
 ];
 
-function requireEntries(entries, required, label) {
+function requireEntries(entries, required) {
   const missing = required.filter((name) => !entries[name]);
   if (missing.length) {
-    throw new Error(`${label} 缺少文件：${missing.join(', ')}`);
+    throw new Error(`扩展包缺少文件：${missing.join(', ')}`);
   }
 }
 
-function parseJsonEntry(entries, name, label) {
-  if (!entries[name]) throw new Error(`${label} 缺少 ${name}`);
+function parseJsonEntry(entries, name) {
+  if (!entries[name]) throw new Error(`扩展包缺少 ${name}`);
   return JSON.parse(strFromU8(entries[name]));
 }
 
-function validateNoDevelopmentFiles(entries, label) {
+function validateNoDevelopmentFiles(entries) {
   const names = Object.keys(entries);
   const forbidden = names.filter((name) => (
     forbiddenPrefixes.some((prefix) => name.startsWith(prefix))
@@ -64,97 +66,64 @@ function validateNoDevelopmentFiles(entries, label) {
     || name.endsWith('.zip')
   ));
   if (forbidden.length) {
-    throw new Error(`${label} 包含开发文件：${forbidden.slice(0, 5).join(', ')}`);
+    throw new Error(`扩展包包含开发文件：${forbidden.slice(0, 5).join(', ')}`);
   }
 }
 
-function requireSameEntry(left, right, name, label) {
-  const leftBytes = left[name];
-  const rightBytes = right[name];
+const archive = unzipSync(new Uint8Array(await readFile(archivePath)));
+requireEntries(archive, requiredFiles);
+validateNoDevelopmentFiles(archive);
+
+const manifest = parseJsonEntry(archive, 'manifest.json');
+const capability = parseJsonEntry(archive, 'mermaid-capability.json');
+const dependencyManifest = parseJsonEntry(archive, 'lib/mermaid/version.json');
+if (manifest.version !== appVersion) {
+  throw new Error(`扩展包版本不一致：manifest=${manifest.version}, package=${appVersion}`);
+}
+if (capability.available !== true) {
+  throw new Error('扩展包的 Mermaid 能力标记未启用');
+}
+for (const descriptor of [capability, dependencyManifest]) {
   if (
-    !leftBytes
-    || !rightBytes
-    || Buffer.compare(Buffer.from(leftBytes), Buffer.from(rightBytes)) !== 0
+    descriptor.name !== 'mermaid'
+    || descriptor.version !== mermaidVersion
+    || descriptor.rendererApi !== 1
   ) {
-    throw new Error(`${label} 文件内容不一致：${name}`);
+    throw new Error('扩展包的 Mermaid 能力标记或依赖清单版本不匹配');
   }
 }
 
-async function readArchive(name) {
-  return unzipSync(new Uint8Array(await readFile(join(dist, name))));
-}
-
-const [full, lite, dependency] = await Promise.all([
-  readArchive(archiveNames.full),
-  readArchive(archiveNames.lite),
-  readArchive(archiveNames.dependency)
-]);
-
-requireEntries(full, [
-  ...commonFiles,
-  'lib/mermaid/version.json',
-  'lib/mermaid/mermaid.esm.min.mjs'
-], 'Full');
-requireEntries(lite, commonFiles, 'Lite');
-requireEntries(dependency, [
-  'mermaid-capability.json',
-  'lib/mermaid/version.json',
-  'lib/mermaid/mermaid.esm.min.mjs'
-], 'Dependency');
-
-for (const [label, entries] of Object.entries({ Full: full, Lite: lite, Dependency: dependency })) {
-  validateNoDevelopmentFiles(entries, label);
-}
-
-const fullCapability = parseJsonEntry(full, 'mermaid-capability.json', 'Full');
-const liteCapability = parseJsonEntry(lite, 'mermaid-capability.json', 'Lite');
-const dependencyCapability = parseJsonEntry(
-  dependency,
-  'mermaid-capability.json',
-  'Dependency'
-);
-if (fullCapability.available !== true || dependencyCapability.available !== true) {
-  throw new Error('Full 或 Dependency 的 Mermaid 能力标记未启用');
-}
-if (liteCapability.available !== false) {
-  throw new Error('Lite 的 Mermaid 能力标记未关闭');
-}
-
-commonFiles
-  .filter((name) => name !== 'mermaid-capability.json')
-  .forEach((name) => requireSameEntry(full, lite, name, 'Full 与 Lite'));
-requireSameEntry(full, dependency, 'mermaid-capability.json', 'Full 与 Dependency');
-
-const liteMermaidFiles = Object.keys(lite).filter((name) => name.startsWith('lib/mermaid/'));
-if (liteMermaidFiles.length) {
-  throw new Error(`Lite 不应包含 Mermaid 依赖：${liteMermaidFiles[0]}`);
-}
-const fullChunks = Object.keys(full).filter(
+const mermaidChunks = Object.keys(archive).filter(
   (name) => name.startsWith('lib/mermaid/chunks/mermaid.esm.min/') && name.endsWith('.mjs')
 );
-if (fullChunks.length < 100) {
-  throw new Error(`Full 的 Mermaid 分块不完整：${fullChunks.length}`);
+if (mermaidChunks.length < 100) {
+  throw new Error(`扩展包的 Mermaid 分块不完整：${mermaidChunks.length}`);
 }
-const dependencyUnexpected = Object.keys(dependency).filter(
-  (name) => name !== 'mermaid-capability.json' && !name.startsWith('lib/mermaid/')
-);
-if (dependencyUnexpected.length) {
-  throw new Error(`Dependency 包含无关文件：${dependencyUnexpected[0]}`);
+if (dependencyManifest.chunks !== mermaidChunks.length) {
+  throw new Error(
+    `Mermaid 分块数不一致：清单 ${dependencyManifest.chunks}，实际 ${mermaidChunks.length}`
+  );
 }
-Object.keys(dependency)
-  .filter((name) => name.startsWith('lib/mermaid/'))
-  .forEach((name) => requireSameEntry(full, dependency, name, 'Full 与 Dependency'));
 
-const checksums = await readFile(join(dist, 'SHA256SUMS.txt'), 'utf8');
-for (const name of Object.values(archiveNames)) {
-  const digest = createHash('sha256')
-    .update(await readFile(join(dist, name)))
-    .digest('hex');
-  if (!checksums.includes(`${digest}  ${name}`)) {
-    throw new Error(`${name} 的 SHA-256 记录不匹配`);
-  }
+const checksums = (await readFile(join(dist, 'SHA256SUMS.txt'), 'utf8'))
+  .trim()
+  .split(/\r?\n/);
+if (checksums.length !== 1) {
+  throw new Error(`SHA256SUMS.txt 应仅包含 1 条记录，实际为 ${checksums.length}`);
+}
+const digest = createHash('sha256')
+  .update(await readFile(archivePath))
+  .digest('hex');
+if (checksums[0] !== `${digest}  ${archiveName}`) {
+  throw new Error(`${archiveName} 的 SHA-256 记录不匹配`);
+}
+
+const distEntries = (await readdir(dist)).sort();
+const expectedDistEntries = ['SHA256SUMS.txt', archiveName].sort();
+if (JSON.stringify(distEntries) !== JSON.stringify(expectedDistEntries)) {
+  throw new Error(`dist 目录包含非预期产物：${distEntries.join(', ')}`);
 }
 
 console.log(
-  `发行产物校验通过：Full ${fullChunks.length} 个 Mermaid 分块，Lite 无运行库，Dependency 可覆盖安装`
+  `发行产物校验通过：${archiveName}，包含 ${mermaidChunks.length} 个 Mermaid 分块`
 );

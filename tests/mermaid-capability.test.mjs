@@ -30,7 +30,7 @@ function sequenceFetch(...responses) {
   return async () => responses[index++];
 }
 
-test('精简包能力标记关闭时不读取 Mermaid 依赖', async () => {
+test('能力标记关闭时不读取 Mermaid 依赖', async () => {
   let calls = 0;
   const result = await detectMermaidCapability(async () => {
     calls += 1;
