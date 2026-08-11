@@ -1,5 +1,5 @@
 const EXPECTED_NAME = 'mermaid';
-const EXPECTED_VERSION = '11.16.0';
+const EXPECTED_VERSION = '11.16.1';
 const EXPECTED_RENDERER_API = 1;
 const CAPABILITY_URL = new URL('./mermaid-capability.json', import.meta.url);
 const DEPENDENCY_MANIFEST_URL = new URL('./lib/mermaid/version.json', import.meta.url);

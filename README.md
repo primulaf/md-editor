@@ -1,12 +1,15 @@
 # md.
 
-离线 Markdown 阅读与编辑 Chrome 扩展。采用 GitHub 风格明暗主题，支持 Mermaid 图表、最近文件、任务列表、脚注、源文件保存、目录导航、图片粘贴和 HTML 导出，可直接打开本地 .md 文件。
+离线 Markdown 阅读与编辑 Chrome 扩展。采用 GitHub 风格明暗主题，支持 KaTeX 数学公式、Mermaid 图表、代码块复制与下载、PDF 打印、最近文件、源文件保存、目录导航和图片粘贴，可直接打开本地 .md 文件。
 
-当前稳定版本：**v1.7.0**，可从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载。完整改动见 [v1.7.0 版本说明](docs/releases/v1.7.0.md)。
+当前稳定版本：**v1.8.0**，可从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载。完整改动见 [v1.8.0 版本说明](docs/releases/v1.8.0.md)。
 
 ## 功能
 
 - **离线 Mermaid 图表** — 完整运行库随扩展提供，支持缩放及单图下载 SVG / PNG
+- **离线数学公式** — 使用 KaTeX 渲染 `$...$` 行内公式和 `$$...$$` 块级公式，保留 MathML
+- **代码块工具** — 普通代码块可一键复制，并按语言下载为 `.py`、`.js`、`.json`、`.sh` 等文件
+- **打印 / 导出 PDF** — 生成独立浅色打印版式，通过 Chrome 自带的“另存为 PDF”保留可搜索、可复制的文字
 - **明暗主题** — GitHub 风格浅色与深色模式即时切换，多标签页同步偏好
 - **最近文件** — 记住最多 12 个工具内打开或双击关联的文件；有句柄时尽量恢复直接保存，关联文件按只读来源重新读取
 - **任务列表与脚注** — 预览及 HTML 导出均支持，Markdown 源码保持不变
@@ -19,7 +22,7 @@
 - **三档字号** — 小 / 中 / 大，侧边栏、编辑区和预览区同步缩放
 - **紧凑侧栏** — 文档与编辑操作分组，低频命令按需展开；目录下方提供排除图片编码和图表源码的阅读摘要
 - **图片处理** — 支持粘贴、拖拽图片；编辑时以短引用呈现，保存时自动还原为可移植的 DataURL
-- **HTML 导出** — 完整自包含 HTML 文件，保留样式和代码高亮
+- **HTML 导出** — 完整自包含 HTML 文件，保留样式、代码高亮、公式字体和 Mermaid SVG
 - **拖拽 .md 文件** — 将 .md 文件拖入编辑器直接加载
 - **双击 .md 关联打开** — 设置后双击 .md 文件自动用 Chrome 打开渲染
 - **未保存提醒** — 关闭标签页时检测未保存更改
@@ -31,9 +34,9 @@
 
 ### 方式一：加载发行包
 
-v1.6.2 起统一提供单一完整扩展包。v1.7.0 发行包为 `md-editor-1.7.0.zip`，其中已包含 Mermaid 离线运行库。
+v1.6.2 起统一提供单一完整扩展包。v1.8.0 发行包为 `md-editor-1.8.0.zip`，其中已包含 Mermaid、KaTeX 等全部离线运行库。
 
-1. 从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载 `md-editor-1.7.0.zip`，并解压到一个新的空文件夹
+1. 从 [GitHub Releases](https://github.com/primulaf/md-editor/releases/latest) 下载 `md-editor-1.8.0.zip`，并解压到一个新的空文件夹
 2. 打开 Chrome，地址栏输入 `chrome://extensions`
 3. 开启右上角「**开发者模式**」
 4. 点击「**加载已解压的扩展程序**」
@@ -73,6 +76,29 @@ npm run package
 - 双击 `.md` 由扩展接管时，Chrome 不会把源文件写入权限交给扩展。修改后首次点击「保存」，请选择原文件完成授权，或使用「另存为」创建新文件。
 - 工具内打开和双击关联的文件都会进入「最近」列表。双击文件再次打开时读取磁盘上的最新内容，但仍需在保存时选择源文件取得写入权限。
 - 「导出 HTML」只生成 HTML，不会改变 Markdown 的保存目标，也不会清除 Markdown 的未保存状态。
+- 「打印 / 导出 PDF」只打印预览内容；在 Chrome 打印窗口的“目标打印机”中选择 Chrome 自带的「另存为 PDF」，不会改变 Markdown 的保存状态，并可保留可搜索、可复制的文字。
+- 不要选择 Windows 的「Microsoft Print to PDF」；该系统打印机可能将文字转换为不可选择的轮廓。
+
+## 数学公式
+
+行内公式使用单个美元符号：
+
+```markdown
+质能方程 $E = mc^2$
+```
+
+块级公式使用两个美元符号：
+
+```markdown
+$$
+\int_0^1 x^2\,dx = \frac{1}{3}
+$$
+```
+
+- KaTeX 脚本、样式和 WOFF2 字体全部随扩展提供，不访问 CDN。
+- 金额、转义的美元符号、行内代码和代码围栏不会被当作公式。
+- 无效公式以原始内容和错误颜色显示，不会阻断整篇文档渲染。
+- 含公式的 HTML 导出会内嵌 KaTeX 样式和字体；无公式文档不会携带该字体载荷。
 
 ## Mermaid 图表
 
@@ -104,12 +130,14 @@ mindmap
 | `Ctrl/Cmd + S` | 保存当前 Markdown |
 | `Ctrl/Cmd + Shift + S` | 另存为 Markdown |
 | `Ctrl/Cmd + E` | 导出 HTML |
+| `Ctrl/Cmd + P` | 打印 / 导出 PDF |
 | `Ctrl/Cmd + O` | 打开 .md 文件 |
 
 ## 技术栈
 
-- **Markdown 渲染**：[markdown-it](https://github.com/markdown-it/markdown-it) + anchor / task-lists / footnote 插件
-- **图表渲染**：[Mermaid](https://mermaid.js.org/) 11.16.0（完整内置图表、按需 ESM 分块）
+- **Markdown 渲染**：[markdown-it](https://github.com/markdown-it/markdown-it) + anchor / task-lists / footnote / texmath 插件
+- **数学公式**：[KaTeX](https://katex.org/) 0.18.4（本地 JS / CSS / WOFF2 字体）
+- **图表渲染**：[Mermaid](https://mermaid.js.org/) 11.16.1（完整内置图表、按需 ESM 分块）
 - **XSS 防护**：[DOMPurify](https://github.com/cure53/DOMPurify)
 - **代码高亮**：[highlight.js](https://highlightjs.org/)（精简子集，9 种语言）
 - **字体**：GitHub 风格系统字体栈，编辑区与代码块使用系统等宽字体
@@ -123,6 +151,8 @@ mindmap
 ├── content.js         # Content Script：拦截 file://*.md 读取内容
 ├── index.html         # 主页面
 ├── app.js             # 全部业务逻辑
+├── code-block-tools.js # 代码块复制、语言映射与源码下载
+├── math-rendering.js  # KaTeX 配置与自包含导出字体
 ├── image-assets.js    # 图片 DataURL 短引用、恢复与去重
 ├── document-stats.js  # 正文字数、阅读时间与标题统计
 ├── recent-files.js    # 最近文件句柄/关联地址、排序与去重
@@ -140,6 +170,8 @@ mindmap
 │   ├── markdownItAnchor.umd.js
 │   ├── purify.min.js
 │   ├── highlight.min.js
+│   ├── texmath.js
+│   ├── katex/          # KaTeX 脚本、样式、版本清单与 WOFF2 字体
 │   ├── mermaid/        # Mermaid 版本清单、ESM 入口与类型分块
 │   └── github*.min.css
 └── fonts/

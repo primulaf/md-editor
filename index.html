@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>md.</title>
-  <meta name="description" content="GitHub 风格离线 Markdown 阅读与编辑工具 — Mermaid 图表、目录导航、源文件保存和 HTML 导出">
+  <meta name="description" content="GitHub 风格离线 Markdown 阅读与编辑工具 — 数学公式、Mermaid 图表、PDF 打印和代码下载">
   <meta name="author" content="md.">
 
   <script src="./theme-init.js"></script>
@@ -15,6 +15,7 @@
     rel="stylesheet"
     href="./lib/github.min.css"
   />
+  <link rel="stylesheet" href="./lib/katex/katex.min.css" />
 
   <!-- 自定义样式 -->
   <link rel="stylesheet" href="./style.css" />
@@ -45,6 +46,7 @@
           <div id="moreMenu" class="more-menu" aria-label="更多文档操作" hidden>
             <button id="newBtn" type="button">新建文档</button>
             <button id="exportHtmlBtn" type="button">导出 HTML</button>
+            <button id="exportPdfBtn" type="button">打印 / 导出 PDF</button>
           </div>
         </div>
 
@@ -145,6 +147,8 @@
   <script src="./lib/markdownItAnchor.umd.js"></script>
   <script src="./lib/markdownItTaskLists.min.js"></script>
   <script src="./lib/markdownItFootnote.min.js"></script>
+  <script src="./lib/katex/katex.min.js"></script>
+  <script src="./lib/texmath.js"></script>
   <script src="./lib/purify.min.js"></script>
   <script src="./lib/highlight.min.js"></script>
 
@@ -178,6 +182,23 @@
     </div>
   </div>
 
+  <div id="printGuideDialog" class="filename-dialog" role="dialog" aria-modal="true" aria-labelledby="printGuideDialogTitle" hidden>
+    <div class="filename-dialog-content print-guide-dialog-content">
+      <h3 id="printGuideDialogTitle" class="filename-dialog-title">保留 PDF 文字层</h3>
+      <div class="filename-dialog-body">
+        <p class="dialog-message">请在 Chrome 打印窗口的“目标打印机”中选择 Chrome 自带的“另存为 PDF”。不要选择“Microsoft Print to PDF”，后者可能把文字转换为不可选择的轮廓。</p>
+        <label class="dialog-checkbox" for="printGuideDismiss">
+          <input id="printGuideDismiss" type="checkbox" />
+          <span>以后不再提示</span>
+        </label>
+      </div>
+      <div class="filename-dialog-actions">
+        <button type="button" id="printGuideCancelBtn" class="filename-btn">取消</button>
+        <button type="button" id="printGuideContinueBtn" class="filename-btn primary">继续打印</button>
+      </div>
+    </div>
+  </div>
+
   <div id="mermaidInstallDialog" class="filename-dialog" role="dialog" aria-modal="true" aria-labelledby="mermaidInstallDialogTitle" hidden>
     <div class="filename-dialog-content mermaid-install-dialog-content">
       <h3 id="mermaidInstallDialogTitle" class="filename-dialog-title">Mermaid 图表不可用</h3>
@@ -203,6 +224,8 @@
   <script src="./document-stats.js"></script>
   <script src="./recent-files.js"></script>
   <script src="./mermaid-tools.js"></script>
+  <script src="./code-block-tools.js"></script>
+  <script src="./math-rendering.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

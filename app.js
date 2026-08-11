@@ -6,6 +6,7 @@ const openBtn = document.getElementById("openBtn");
 const saveBtn = document.getElementById("saveBtn");
 const saveAsBtn = document.getElementById("saveAsBtn");
 const exportHtmlBtn = document.getElementById("exportHtmlBtn");
+const exportPdfBtn = document.getElementById("exportPdfBtn");
 const fontSizeControl = document.getElementById("fontSizeControl");
 const fontSizeButtons = document.querySelectorAll("[data-font-size]");
 const themeBtn = document.getElementById("themeBtn");
@@ -36,6 +37,10 @@ const sourceAccessDialog = document.getElementById("sourceAccessDialog");
 const sourceAccessCancelBtn = document.getElementById("sourceAccessCancelBtn");
 const sourceAccessSaveAsBtn = document.getElementById("sourceAccessSaveAsBtn");
 const sourceAccessConnectBtn = document.getElementById("sourceAccessConnectBtn");
+const printGuideDialog = document.getElementById("printGuideDialog");
+const printGuideDismiss = document.getElementById("printGuideDismiss");
+const printGuideCancelBtn = document.getElementById("printGuideCancelBtn");
+const printGuideContinueBtn = document.getElementById("printGuideContinueBtn");
 const mermaidInstallDialog = document.getElementById("mermaidInstallDialog");
 const mermaidInstallCloseBtn = document.getElementById("mermaidInstallCloseBtn");
 
@@ -50,6 +55,7 @@ const STORAGE_FONT_SIZE_VERSION_KEY = "md-editor-font-size-version";
 const LAYOUT_STORAGE_KEY = "md-editor-layout";
 const THEME_STORAGE_KEY = "md-editor-theme";
 const IMAGE_ASSETS_STORAGE_KEY = "md-editor-image-assets";
+const PRINT_GUIDE_DISMISSED_KEY = "md-editor-print-guide-dismissed";
 const MERMAID_RENDER_DELAY = 450;
 const RESIZE_HANDLE_WIDTH = 6;
 const imageAssetStore = window.mdImageAssets.createStore();
@@ -138,6 +144,7 @@ let imageAssetsSnapshotJson = "";
 let imageAssetsBlockedRevision = -1;
 let recentEntries = [];
 let recentFilesDisabled = !recentFilesStore;
+let printInProgress = false;
 
 // 文件名对话框状态
 let pendingFilenameCallback = null;
@@ -226,6 +233,54 @@ function hideSourceAccessDialog() {
   if (!sourceAccessDialog) return;
   sourceAccessDialog.hidden = true;
   sourceAccessDialog.style.display = 'none';
+}
+
+function isPrintGuideDismissed() {
+  try {
+    return localStorage.getItem(PRINT_GUIDE_DISMISSED_KEY) === 'true';
+  } catch (error) {
+    return false;
+  }
+}
+
+function showPrintGuideDialog() {
+  if (!printGuideDialog) {
+    printPreviewAsPdf();
+    return;
+  }
+  if (printGuideDismiss) printGuideDismiss.checked = false;
+  printGuideDialog.hidden = false;
+  requestAnimationFrame(() => {
+    printGuideDialog.style.display = 'flex';
+    printGuideContinueBtn?.focus();
+  });
+}
+
+function hidePrintGuideDialog() {
+  if (!printGuideDialog) return;
+  printGuideDialog.hidden = true;
+  printGuideDialog.style.display = 'none';
+}
+
+function requestPrintPreviewAsPdf() {
+  setMoreMenuOpen(false);
+  if (isPrintGuideDismissed()) {
+    printPreviewAsPdf();
+    return;
+  }
+  showPrintGuideDialog();
+}
+
+function continuePrintPreviewAsPdf() {
+  if (printGuideDismiss?.checked) {
+    try {
+      localStorage.setItem(PRINT_GUIDE_DISMISSED_KEY, 'true');
+    } catch (error) {
+      console.warn('无法保存 PDF 打印提示偏好：', error);
+    }
+  }
+  hidePrintGuideDialog();
+  printPreviewAsPdf();
 }
 
 function showMermaidInstallDialog() {
@@ -432,6 +487,10 @@ function getHeadingPlainText(heading) {
   const clone = heading.cloneNode(true);
   clone.querySelectorAll(".header-anchor").forEach((el) => el.remove());
   clone.querySelectorAll(".visually-hidden").forEach((el) => el.remove());
+  clone.querySelectorAll(".katex").forEach((formula) => {
+    const tex = formula.querySelector('annotation[encoding="application/x-tex"]');
+    formula.replaceWith(heading.ownerDocument.createTextNode((tex?.textContent || "").trim()));
+  });
   return (clone.textContent || "").trim();
 }
 
@@ -482,12 +541,20 @@ if (window.markdownitFootnote) {
   md.use(window.markdownitFootnote);
 }
 
+if (window.texmath && window.katex && window.mdMathRendering) {
+  md.use(
+    window.texmath,
+    window.mdMathRendering.createTexmathOptions(window.katex)
+  );
+}
+
 const defaultFenceRenderer = md.renderer.rules.fence;
 md.renderer.rules.fence = (tokens, index, options, env, renderer) => {
   const token = tokens[index];
   const language = (token.info || '').trim().split(/\s+/)[0].toLowerCase();
   if (language !== 'mermaid') {
-    return defaultFenceRenderer(tokens, index, options, env, renderer);
+    const rendered = defaultFenceRenderer(tokens, index, options, env, renderer);
+    return `<div class="code-block" data-language="${escapeHtml(language)}">${rendered}</div>`;
   }
 
   const source = md.utils.escapeHtml(token.content || '');
@@ -637,6 +704,7 @@ async function ensureMermaidRendered() {
 function getExportPreviewHtml() {
   const clone = preview.cloneNode(true);
   window.mdMermaidTools?.cleanExportClone(clone);
+  window.mdCodeBlockTools?.cleanExportClone(clone);
   clone.removeAttribute('data-mermaid-revision');
   clone.querySelectorAll('.mermaid-dependency-notice').forEach((notice) => {
     notice.remove();
@@ -686,11 +754,13 @@ function renderMarkdown(force) {
       const rawHtml = md.render(expandedSource.content);
 
       const safeHtml = DOMPurify.sanitize(rawHtml, {
-        USE_PROFILES: { html: true },
+        USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
+        ADD_TAGS: ["eq", "eqn"],
         ADD_ATTR: ["target", "rel", "class", "id", "aria-hidden", "aria-label"]
       });
 
       preview.innerHTML = safeHtml;
+      window.mdCodeBlockTools?.enhanceCodeBlocks(preview);
       refreshHeadings();
       ensureHeadingIds();
 
@@ -1889,7 +1959,88 @@ function saveMarkdownFile() {
 /**
  * 生成 HTML 导出模板
  */
-function generateHtmlTemplate(title, renderedHtml) {
+const PRINT_DOCUMENT_STYLES = `
+    @page {
+      size: A4;
+      margin: 16mm 17mm 18mm;
+    }
+    @media print {
+      html, body {
+        width: auto;
+        height: auto;
+        background: #ffffff;
+        color: #24292f;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+      .container {
+        max-width: none;
+        margin: 0;
+        padding: 0;
+        font-size: 11pt;
+        line-height: 1.65;
+      }
+      .container h1, .container h2, .container h3,
+      .container h4, .container h5, .container h6 {
+        break-after: avoid-page;
+        page-break-after: avoid;
+      }
+      .container pre,
+      .container blockquote,
+      .container table,
+      .container img,
+      .container .mermaid-block,
+      .container section:has(> eqn) {
+        break-inside: avoid-page;
+        page-break-inside: avoid;
+      }
+      .container pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        overflow: visible;
+        font-size: 9pt;
+      }
+      .container table {
+        display: table;
+        width: 100%;
+        overflow: visible;
+        font-size: 9pt;
+      }
+      .container th, .container td {
+        padding: 5px 8px;
+        overflow-wrap: anywhere;
+      }
+      .container img,
+      .container .mermaid-canvas,
+      .container .mermaid-svg,
+      .container .mermaid-block.is-wide .mermaid-svg {
+        min-width: 0 !important;
+        max-width: 100% !important;
+        height: auto !important;
+      }
+      .container .mermaid-canvas {
+        box-sizing: border-box;
+        width: auto !important;
+        max-width: 100% !important;
+        padding: 8px;
+        overflow: visible;
+      }
+      .container .katex-display,
+      .container eqn {
+        max-width: 100%;
+        overflow: visible;
+      }
+      .container a {
+        color: #0969da;
+        text-decoration: underline;
+        border-bottom: 0;
+      }
+    }
+`;
+
+function generateHtmlTemplate(title, renderedHtml, options = {}) {
+  const additionalStyles = String(options.additionalStyles || "");
+  const printStyles = options.printMode ? PRINT_DOCUMENT_STYLES : "";
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2085,14 +2236,26 @@ function generateHtmlTemplate(title, renderedHtml) {
       border-top: 1px solid var(--border);
       margin: 2em 0;
     }
+    ${additionalStyles}
+    ${printStyles}
   </style>
 </head>
-<body>
+<body${options.printMode ? ' class="print-document"' : ''}>
   <main class="container">
     ${renderedHtml}
   </main>
 </body>
 </html>`;
+}
+
+async function buildExportDocument(title, options = {}) {
+  const additionalStyles = window.mdMathRendering
+    ? await window.mdMathRendering.getExportStyles(preview)
+    : "";
+  return generateHtmlTemplate(title, getExportPreviewHtml(), {
+    additionalStyles,
+    printMode: Boolean(options.printMode)
+  });
 }
 
 /**
@@ -2119,20 +2282,22 @@ function downloadHtmlFile(content, filename) {
  */
 async function _exportHtmlFile(filename) {
   if (!canUseImageAssets('导出 HTML')) return;
-  const validatedFilename = validateFilename(filename, '.html');
-  const title = validatedFilename.replace(/\.html$/i, "");
-  await ensureMermaidRendered();
-  const renderedHtml = getExportPreviewHtml();
+  try {
+    const validatedFilename = validateFilename(filename, '.html');
+    const title = validatedFilename.replace(/\.html$/i, "");
+    await ensureMermaidRendered();
+    const htmlContent = await buildExportDocument(title);
+    const downloadedFilename = downloadHtmlFile(htmlContent, validatedFilename);
 
-  const htmlContent = generateHtmlTemplate(title, renderedHtml);
-  const downloadedFilename = downloadHtmlFile(htmlContent, validatedFilename);
-  
-  setStatus(
-    isDirty
-      ? `已导出 HTML：${downloadedFilename} · Markdown 仍未保存`
-      : `已导出 HTML：${downloadedFilename}`,
-    isDirty ? 'notice' : 'success'
-  );
+    setStatus(
+      isDirty
+        ? `已导出 HTML：${downloadedFilename} · Markdown 仍未保存`
+        : `已导出 HTML：${downloadedFilename}`,
+      isDirty ? 'notice' : 'success'
+    );
+  } catch (error) {
+    reportFileError(error, '导出 HTML');
+  }
 }
 
 /**
@@ -2156,7 +2321,7 @@ async function exportHtmlFile() {
       const filename = validateFilename(handle.name || defaultHtmlName, '.html');
       const title = filename.replace(/\.html$/i, '');
       await ensureMermaidRendered();
-      const htmlContent = generateHtmlTemplate(title, getExportPreviewHtml());
+      const htmlContent = await buildExportDocument(title);
       writable = await handle.createWritable();
       await writable.write(htmlContent);
       await writable.close();
@@ -2196,6 +2361,85 @@ async function exportHtmlFile() {
   );
 }
 
+function waitForPrintFrame(htmlContent) {
+  return new Promise((resolve, reject) => {
+    const frame = document.createElement("iframe");
+    frame.className = "print-frame";
+    frame.setAttribute("aria-hidden", "true");
+
+    const timeout = setTimeout(() => {
+      frame.remove();
+      reject(new Error("打印文档加载超时"));
+    }, 15000);
+
+    frame.addEventListener("load", () => {
+      clearTimeout(timeout);
+      resolve(frame);
+    }, { once: true });
+    frame.srcdoc = htmlContent;
+    document.body.appendChild(frame);
+  });
+}
+
+async function waitForPrintResources(documentRef) {
+  const imagePromises = Array.from(documentRef.images, (image) => {
+    if (image.complete) return image.decode?.().catch(() => {}) || Promise.resolve();
+    return new Promise((resolve) => {
+      image.addEventListener("load", resolve, { once: true });
+      image.addEventListener("error", resolve, { once: true });
+    });
+  });
+  const fontsPromise = documentRef.fonts?.ready || Promise.resolve();
+  await Promise.race([
+    Promise.all([fontsPromise, ...imagePromises]),
+    new Promise((resolve) => setTimeout(resolve, 10000))
+  ]);
+}
+
+async function printPreviewAsPdf() {
+  setMoreMenuOpen(false);
+  if (!canUseImageAssets("打印 / 导出 PDF")) return;
+  if (printInProgress) {
+    setStatus("打印文档正在准备，请稍候", "notice");
+    return;
+  }
+
+  let printFrame = null;
+  printInProgress = true;
+  if (exportPdfBtn) exportPdfBtn.disabled = true;
+  try {
+    setStatus("正在准备打印文档…");
+    await ensureMermaidRendered();
+    const title = (currentFileName || "Markdown 文档").replace(/\.(?:md|markdown)$/i, "");
+    const htmlContent = await buildExportDocument(title, { printMode: true });
+    printFrame = await waitForPrintFrame(htmlContent);
+    const printDocument = printFrame.contentDocument;
+    if (!printDocument) throw new Error("浏览器无法读取打印文档");
+    await waitForPrintResources(printDocument);
+
+    const printWindow = printFrame.contentWindow;
+    if (!printWindow) throw new Error("浏览器无法创建打印窗口");
+    setStatus("打印窗口已打开 · 请选择 Chrome“另存为 PDF”以保留可选择文字", "notice");
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    printWindow.focus();
+    printWindow.print();
+
+    setStatus(
+      isDirty
+        ? "打印窗口已关闭 · Markdown 更改仍未保存"
+        : "打印窗口已关闭",
+      isDirty ? "notice" : "success"
+    );
+  } catch (error) {
+    console.error("打印文档失败：", error);
+    setStatus("无法打开打印窗口，请重试", "danger");
+  } finally {
+    printFrame?.remove();
+    printInProgress = false;
+    if (exportPdfBtn) exportPdfBtn.disabled = false;
+  }
+}
+
 /**
  * 新建文档
  */
@@ -2232,21 +2476,23 @@ function defaultMarkdown() {
 
 打开文档后默认显示全宽预览。需要修改时，点击预览区右上角的 **编辑文档**，即可显示编辑区并调整两栏比例。
 
-> **保存说明**：在工具内选择文件后，“保存”可写回已授权的文件；通过 Chrome 双击接管的文件，首次保存时需要重新选择源文件完成授权。“另存为”和“导出 HTML”不会覆盖原文件。
+> **保存说明**：在工具内选择文件后，“保存”可写回已授权的文件；通过 Chrome 双击接管的文件，首次保存时需要重新选择源文件完成授权。“另存为”、HTML 导出和 PDF 打印不会覆盖原文件。
 
 ## 当前功能
 
 | 功能 | 说明 |
 |---|---|
 | 阅读与编辑 | GitHub 风格预览，按需打开编辑区 |
-| 文件操作 | 打开、保存、另存为和导出 HTML |
+| 文件操作 | 打开、保存、另存为、导出 HTML 和打印为 PDF |
 | 目录导航 | 分级折叠、点击跳转、滚动高亮 |
 | 字号 | 小、中、大三档同步缩放 |
 | 多文档 | 标签页显示文件名，文档状态相互隔离 |
 | 最近文件 | 记录工具内打开和双击关联文件，便于再次访问 |
 | 明暗主题 | 在 GitHub 风格浅色与深色模式间切换 |
 | Markdown 扩展 | 支持只读任务列表和可往返跳转的脚注 |
+| 数学公式 | 使用 KaTeX 离线渲染行内与块级公式 |
 | Mermaid | 离线渲染，并支持缩放及下载 SVG / PNG |
+| 代码块 | 语法高亮、一键复制和按语言下载源码 |
 | 图片 | 粘贴或拖入图片，编辑时显示短引用，保存时自动内嵌 |
 
 ## Mermaid 图表
@@ -2280,6 +2526,16 @@ sequenceDiagram
 
 将鼠标移入图表可使用缩放和下载工具。导出 HTML 时，图表仍以原始比例直接内嵌为 SVG。
 
+## 数学公式
+
+行内公式使用单个美元符号，例如质能方程 $E = mc^2$。块级公式使用两个美元符号：
+
+$$
+\\int_0^1 x^2\\,dx = \\frac{1}{3}
+$$
+
+公式、KaTeX 字体和辅助阅读所需的 MathML 均由扩展离线提供，HTML 导出和 PDF 打印也会保留排版。
+
 ## Markdown 效果示例
 
 ### 使用建议
@@ -2302,6 +2558,8 @@ function documentMode(isEditing) {
 console.log(documentMode(false));
 \`\`\`
 
+代码块顶部可直接复制源码，或按语言下载为对应扩展名的文件。
+
 ### 常用快捷键
 
 | 快捷键 | 操作 |
@@ -2309,7 +2567,8 @@ console.log(documentMode(false));
 | Ctrl/Cmd + O | 打开文件 |
 | Ctrl/Cmd + S | 保存 Markdown |
 | Ctrl/Cmd + Shift + S | 另存为 Markdown |
-| Ctrl/Cmd + E | 导出 HTML |`;
+| Ctrl/Cmd + E | 导出 HTML |
+| Ctrl/Cmd + P | 打印 / 导出 PDF |`;
 }
 
 /**
@@ -2558,6 +2817,12 @@ toc.addEventListener("click", (e) => {
  * 快捷键
  */
 document.addEventListener("keydown", (e) => {
+  if (e.key === 'Escape' && printGuideDialog && !printGuideDialog.hidden) {
+    e.preventDefault();
+    hidePrintGuideDialog();
+    return;
+  }
+
   if (e.key === 'Escape' && mermaidInstallDialog && !mermaidInstallDialog.hidden) {
     e.preventDefault();
     hideMermaidInstallDialog();
@@ -2586,6 +2851,11 @@ document.addEventListener("keydown", (e) => {
     exportHtmlFile();
   }
 
+  if (mod && e.key.toLowerCase() === "p") {
+    e.preventDefault();
+    requestPrintPreviewAsPdf();
+  }
+
   if (mod && e.key.toLowerCase() === "o") {
     e.preventDefault();
     openMarkdownFile();
@@ -2602,6 +2872,7 @@ exportHtmlBtn?.addEventListener("click", () => {
   setMoreMenuOpen(false);
   exportHtmlFile();
 });
+exportPdfBtn?.addEventListener("click", requestPrintPreviewAsPdf);
 fontSizeControl?.addEventListener("click", (event) => {
   const button = event.target.closest('[data-font-size]');
   if (button) applyFontSize(button.dataset.fontSize);
@@ -2670,6 +2941,12 @@ sourceAccessDialog?.addEventListener('click', (e) => {
     hideSourceAccessDialog();
     updateDirtyIndicator();
   }
+});
+
+printGuideCancelBtn?.addEventListener('click', hidePrintGuideDialog);
+printGuideContinueBtn?.addEventListener('click', continuePrintPreviewAsPdf);
+printGuideDialog?.addEventListener('click', (event) => {
+  if (event.target === printGuideDialog) hidePrintGuideDialog();
 });
 
 mermaidInstallCloseBtn?.addEventListener('click', hideMermaidInstallDialog);
@@ -2774,6 +3051,10 @@ window.addEventListener('beforeunload', (e) => {
 /**
  * 初始化
  */
+window.mdCodeBlockTools?.bindCodeBlockTools(preview, {
+  getFileName: () => currentFileName,
+  onStatus: setStatus
+});
 applyTheme(getCurrentTheme(), { persist: false, rerender: false });
 restoreFontSize();
 restore();

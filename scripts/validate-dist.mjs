@@ -17,6 +17,8 @@ const requiredFiles = [
   'index.html',
   'theme-init.js',
   'app.js',
+  'code-block-tools.js',
+  'math-rendering.js',
   'recent-files.js',
   'mermaid-tools.js',
   'image-assets.js',
@@ -39,7 +41,12 @@ const requiredFiles = [
   'lib/markdownItAnchor.umd.js',
   'lib/markdownItTaskLists.min.js',
   'lib/markdownItFootnote.min.js',
+  'lib/texmath.js',
   'lib/purify.min.js',
+  'lib/katex/katex.min.js',
+  'lib/katex/katex.min.css',
+  'lib/katex/version.json',
+  'lib/katex/fonts/KaTeX_Main-Regular.woff2',
   'lib/mermaid/version.json',
   'lib/mermaid/mermaid.esm.min.mjs'
 ];
@@ -83,8 +90,27 @@ validateNoDevelopmentFiles(archive);
 const manifest = parseJsonEntry(archive, 'manifest.json');
 const capability = parseJsonEntry(archive, 'mermaid-capability.json');
 const dependencyManifest = parseJsonEntry(archive, 'lib/mermaid/version.json');
+const katexManifest = parseJsonEntry(archive, 'lib/katex/version.json');
 if (manifest.version !== appVersion) {
   throw new Error(`扩展包版本不一致：manifest=${manifest.version}, package=${appVersion}`);
+}
+if (
+  katexManifest.name !== 'katex'
+  || katexManifest.version !== packageJson.dependencies.katex
+  || katexManifest.parser !== 'markdown-it-texmath'
+  || katexManifest.parserVersion !== packageJson.dependencies['markdown-it-texmath']
+) {
+  throw new Error('扩展包的 KaTeX 依赖清单版本不匹配');
+}
+const katexFonts = Object.keys(archive).filter(
+  (name) => name.startsWith('lib/katex/fonts/') && name.endsWith('.woff2')
+);
+if (katexFonts.length !== 20 || katexManifest.fonts !== katexFonts.length) {
+  throw new Error(`扩展包的 KaTeX 字体不完整：${katexFonts.length}`);
+}
+const katexCss = strFromU8(archive['lib/katex/katex.min.css']);
+if (/fonts\/[^)]*\.(?:woff|ttf)\b/.test(katexCss)) {
+  throw new Error('扩展包的 KaTeX CSS 引用了未打包的旧字体格式');
 }
 if (capability.available !== true) {
   throw new Error('扩展包的 Mermaid 能力标记未启用');
@@ -124,6 +150,11 @@ if (checksums[0] !== `${digest}  ${archiveName}`) {
   throw new Error(`${archiveName} 的 SHA-256 记录不匹配`);
 }
 
+const archiveBytes = (await readFile(archivePath)).byteLength;
+if (archiveBytes > 3 * 1024 * 1024) {
+  throw new Error(`扩展包超过 3 MB 体积门槛：${archiveBytes} bytes`);
+}
+
 const distEntries = (await readdir(dist)).sort();
 const expectedDistEntries = ['SHA256SUMS.txt', archiveName].sort();
 if (JSON.stringify(distEntries) !== JSON.stringify(expectedDistEntries)) {
@@ -131,5 +162,5 @@ if (JSON.stringify(distEntries) !== JSON.stringify(expectedDistEntries)) {
 }
 
 console.log(
-  `发行产物校验通过：${archiveName}，包含 ${mermaidChunks.length} 个 Mermaid 分块`
+  `发行产物校验通过：${archiveName}，${archiveBytes} bytes，包含 ${mermaidChunks.length} 个 Mermaid 分块与 ${katexFonts.length} 个 KaTeX 字体`
 );

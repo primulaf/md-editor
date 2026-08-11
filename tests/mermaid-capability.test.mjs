@@ -51,7 +51,7 @@ test('能力标记与依赖清单匹配时启用 Mermaid', async () => {
   assert.deepEqual(result, {
     available: true,
     reason: 'available',
-    version: '11.16.0',
+    version: '11.16.1',
     chunks: 103
   });
 });

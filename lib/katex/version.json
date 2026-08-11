@@ -1,0 +1,7 @@
+{
+  "name": "katex",
+  "version": "0.18.4",
+  "parser": "markdown-it-texmath",
+  "parserVersion": "1.0.0",
+  "fonts": 20
+}

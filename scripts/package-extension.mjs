@@ -18,6 +18,8 @@ const packageItems = [
   'index.html',
   'theme-init.js',
   'app.js',
+  'code-block-tools.js',
+  'math-rendering.js',
   'recent-files.js',
   'mermaid-tools.js',
   'image-assets.js',
@@ -38,7 +40,9 @@ const packageItems = [
   'lib/markdownItAnchor.umd.js',
   'lib/markdownItTaskLists.min.js',
   'lib/markdownItFootnote.min.js',
+  'lib/texmath.js',
   'lib/purify.min.js',
+  'lib/katex',
   'lib/mermaid'
 ];
 

@@ -63,6 +63,22 @@ test("keeps image alt text but excludes DataURL and short-reference payloads", (
   assert.equal(stats.readingMinutes, 1);
 });
 
+test("excludes inline and block math source from reading statistics", () => {
+  const markdown = [
+    "正文 $E=mc^2$ 保留",
+    "",
+    "$$",
+    "\\int_0^1 x^2\\,dx = \\frac{1}{3}",
+    "$$",
+    "同样排除 $$x^2+y^2=z^2$$ 单行块公式",
+    "价格 $100 不应被当作公式"
+  ].join("\n");
+  const stats = calculateDocumentStats(markdown);
+
+  assert.equal(stats.latinWordCount, 1);
+  assert.equal(stats.cjkCharacterCount, 22);
+});
+
 test("formats longer reading estimates", () => {
   assert.equal(formatReadingTime(1), "少于 1 分钟");
   assert.equal(formatReadingTime(2), "约 2 分钟");

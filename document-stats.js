@@ -62,8 +62,15 @@
     return count;
   }
 
+  function stripMathExpressions(markdown) {
+    return String(markdown || "")
+      .replace(/^ {0,3}\$\$\s*$[\s\S]*?^ {0,3}\$\$\s*$/gm, " ")
+      .replace(/(^|[^\\\d])\$\$([^\r\n$]+?)\$\$(?!\d)/g, "$1 ")
+      .replace(/(^|[^\\\d])\$((?:[^\s\\])|(?:\S[^\r\n]*?[^\s\\]))\$(?!\d)/g, "$1 ");
+  }
+
   function toReadableText(markdownWithoutFences) {
-    return String(markdownWithoutFences || "")
+    return stripMathExpressions(String(markdownWithoutFences || ""))
       .replace(/<!--[\s\S]*?-->/g, " ")
       .replace(DATA_URL_PATTERN, " ")
       .replace(/!\[((?:\\.|[^\]\r\n])*)\]\([^\r\n)]*\)/g, "$1")
@@ -112,6 +119,7 @@
   return {
     calculateDocumentStats,
     formatReadingTime,
+    stripMathExpressions,
     stripFencedCodeBlocks
   };
 });
